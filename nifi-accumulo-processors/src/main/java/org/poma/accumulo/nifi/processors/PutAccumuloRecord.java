@@ -67,6 +67,13 @@ import java.util.stream.Collectors;
                 value = "visibility label for <COLUMN FAMILY>:<COLUMN QUALIFIER>."
         )
 })
+/**
+ * Purpose and Design: Requires a connector be defined by way of an AccumuloService object. This class
+ * simply extens AbtractProcessor to extract records from a flow file. The location of a record field value can be
+ * placed into the value or part of the column qualifier ( this can/may change )
+ *
+ * Supports deletes. If the delete flag is used we'll delete keys found within that flow file.
+ */
 public class PutAccumuloRecord extends AbstractProcessor {
 
 
@@ -93,6 +100,15 @@ public class PutAccumuloRecord extends AbstractProcessor {
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
+    protected static final PropertyDescriptor DELETE_KEY = new PropertyDescriptor.Builder()
+            .name("delete-key")
+            .displayName("Delete Key")
+            .description("Deletes the key")
+            .required(false)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
     protected static final PropertyDescriptor RECORD_IN_QUALIFIER = new PropertyDescriptor.Builder()
             .name("record-value-in-qualifier")
             .displayName("Record Value In Qualifier")
@@ -100,6 +116,15 @@ public class PutAccumuloRecord extends AbstractProcessor {
             .required(false)
             .defaultValue("false")
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor FIELD_DELIMITER = new PropertyDescriptor.Builder()
+            .name("field-delimiter")
+            .displayName("Field Delimiter")
+            .description("Delimiter between the record value and name. ")
+            .required(false)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
 
@@ -171,11 +196,19 @@ public class PutAccumuloRecord extends AbstractProcessor {
             .build();
 
 
-    // service
+    /**
+     * Connector service which provides us a connector if the configuration is correct.
+     */
     protected AccumuloService accumuloConnectorService;
 
+    /**
+     * Connector that we need to persist while we are operational.
+     */
     protected Connector connector;
 
+    /**
+     * Table writer that will close when we shutdown or upon error.
+     */
     private MultiTableBatchWriter tableWriter = null;
 
     /**
@@ -204,12 +237,16 @@ public class PutAccumuloRecord extends AbstractProcessor {
 
     @OnDisabled
     public void shutdown(){
+        /**
+         * Close the writer when we are shut down.
+         */
         if (null != tableWriter){
             try {
                 tableWriter.close();
             } catch (MutationsRejectedException e) {
                 getLogger().error("Mutations were rejected",e);
             }
+            tableWriter = null;
         }
     }
 
@@ -222,8 +259,10 @@ public class PutAccumuloRecord extends AbstractProcessor {
         properties.add(ROW_FIELD_NAME);
         properties.add(ROW_FIELD_NAME);
         properties.add(COLUMN_FAMILY);
+        properties.add(DELETE_KEY);
         properties.add(WRITE_THREADS);
         properties.add(VISIBILITY_PATH);
+        properties.add(FIELD_DELIMITER);
         properties.add(DEFAULT_VISIBILITY);
         properties.add(MEMORY_SIZE);
         properties.add(RECORD_IN_QUALIFIER);
@@ -268,7 +307,7 @@ public class PutAccumuloRecord extends AbstractProcessor {
 
     @Override
     public void onTrigger(ProcessContext processContext, ProcessSession processSession) throws ProcessException {
-        FlowFile flowFile = processSession.get();
+        final FlowFile flowFile = processSession.get();
         if (flowFile == null) {
             return;
         }
@@ -283,7 +322,9 @@ public class PutAccumuloRecord extends AbstractProcessor {
                 setTableName(processContext.getProperty(TABLE_NAME).evaluateAttributeExpressions(flowFile).getValue()).
                 setColumnFamily(processContext.getProperty(COLUMN_FAMILY).evaluateAttributeExpressions(flowFile).getValue()).
                 setRowField(processContext.getProperty(ROW_FIELD_NAME).evaluateAttributeExpressions(flowFile).getValue()).
+                setFieldDelimiter(processContext.getProperty(FIELD_DELIMITER).isSet() ? processContext.getProperty(FIELD_DELIMITER).evaluateAttributeExpressions(flowFile).getValue() : "").
                 setQualifierInKey(processContext.getProperty(RECORD_IN_QUALIFIER).isSet() ? processContext.getProperty(RECORD_IN_QUALIFIER).asBoolean() : false).
+                setDelete(processContext.getProperty(DELETE_KEY).isSet() ? processContext.getProperty(DELETE_KEY).evaluateAttributeExpressions(flowFile).asBoolean() : false).
                 setTimestampField(processContext.getProperty(TIMESTAMP_FIELD).evaluateAttributeExpressions(flowFile).getValue()).build();
 
 
@@ -293,20 +334,16 @@ public class PutAccumuloRecord extends AbstractProcessor {
         }
 
         final long start = System.nanoTime();
-        int index = 0;
-        int columns = 0;
         boolean failed = false;
         Mutation prevMutation=null;
-        int count=0;
         try (final InputStream in = processSession.read(flowFile);
              final RecordReader reader = recordParserFactory.createRecordReader(flowFile, in, getLogger())) {
             Record record;
-
+            /**
+             * HBase supports a restart point. This may be something that we can/should add if needed.
+             */
             while ((record = reader.nextRecord()) != null) {
-
                 prevMutation = createMutation(prevMutation, processContext, record, reader.getSchema(), recordPath, flowFile,defaultVisibility,  builder);
-                count++;
-                index++;
 
             }
             addMutation(builder.getTableName(),prevMutation);
@@ -320,8 +357,7 @@ public class PutAccumuloRecord extends AbstractProcessor {
         if (!failed) {
             processSession.transfer(flowFile, REL_SUCCESS);
         } else {
-            flowFile = processSession.penalize(flowFile);
-            processSession.transfer(flowFile, REL_FAILURE);
+            processSession.transfer(processSession.penalize(flowFile), REL_FAILURE);
         }
 
         try {
@@ -448,12 +484,9 @@ public class PutAccumuloRecord extends AbstractProcessor {
 
             fieldsToSkip.add(config.getRowFIeld());
 
-            Text cf = new Text(config.getColumnFamily());
-
+            final Text cf = new Text(config.getColumnFamily());
 
             for (String name : schema.getFieldNames().stream().filter(p->!fieldsToSkip.contains(p)).collect(Collectors.toList())) {
-
-
                 String visString = (visField != null && visSettings != null && visSettings.containsKey(name))
                         ? (String)visSettings.get(name) : defaultVisibility;
 
@@ -461,6 +494,9 @@ public class PutAccumuloRecord extends AbstractProcessor {
                 final Value value;
                 String recordValue  = record.getAsString(name);
                 if (config.getQualifierInKey()){
+                    final String delim = config.getFieldDelimiter();
+                    if (!StringUtils.isEmpty(delim))
+                        cq.append(delim.getBytes(),0,delim.length());
                     cq.append(recordValue.getBytes(),0,recordValue.length());
                     value = new Value();
                 }
@@ -484,10 +520,16 @@ public class PutAccumuloRecord extends AbstractProcessor {
                 }
 
                 if (null != timestamp) {
-                    m.put(cf, cq, cv, timestamp, value);
+                    if (config.isDeleteKeys())
+                        m.putDelete(cf, cq, cv, timestamp);
+                    else
+                        m.put(cf, cq, cv, timestamp, value);
                 }
                 else{
-                    m.put(cf, cq, cv, value);
+                    if (config.isDeleteKeys())
+                        m.putDelete(cf, cq, cv);
+                    else
+                        m.put(cf, cq, cv, value);
                 }
             }
 

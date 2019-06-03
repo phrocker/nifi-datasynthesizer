@@ -17,22 +17,33 @@
  */
 package org.poma.accumulo.nifi.data;
 
+/**
+ * Encapsulates configuring the session with some required parameters.
+ *
+ * Justification: Generally not a fan of this fluent API to configure other objects, but there is a lot encapsulated here
+ * so it helps minimize what we pass between the current set of classes and the upcoming features.
+ */
 public class AccumuloRecordConfiguration {
-
-
     private String tableName;
     private String rowFieldName;
     private String columnFamily;
-    private boolean qualifierInKey;
     private String timestampField;
+    private String fieldDelimiter;
+    private boolean qualifierInKey;
+    private boolean deleteKeys;
 
-    protected AccumuloRecordConfiguration(String tableName, String rowFieldName, String columnFamily, String timestampField, boolean qualifierInKey)
+
+    protected AccumuloRecordConfiguration(final String tableName, final String rowFieldName, final String columnFamily,
+                                          final String timestampField, final String fieldDelimiter,
+                                          final boolean qualifierInKey, final boolean deleteKeys)
     {
         this.tableName=tableName;
         this.rowFieldName=rowFieldName;
         this.columnFamily=columnFamily;
         this.timestampField=timestampField;
+        this.fieldDelimiter=fieldDelimiter;
         this.qualifierInKey=qualifierInKey;
+        this.deleteKeys=deleteKeys;
     }
 
     public String getTableName(){
@@ -48,8 +59,16 @@ public class AccumuloRecordConfiguration {
         return timestampField;
     }
 
+    public String getFieldDelimiter(){
+        return fieldDelimiter;
+    }
+
     public boolean getQualifierInKey(){
         return qualifierInKey;
+    }
+
+    public boolean isDeleteKeys(){
+        return deleteKeys;
     }
 
 
@@ -90,15 +109,27 @@ public class AccumuloRecordConfiguration {
             return this;
         }
 
+        public Builder setFieldDelimiter(final String fieldDelimiter){
+            this.fieldDelimiter=fieldDelimiter;
+            return this;
+        }
+
+        public Builder setDelete(final boolean deleteKeys){
+            this.deleteKeys=deleteKeys;
+            return this;
+        }
+
         public AccumuloRecordConfiguration build(){
-            return new AccumuloRecordConfiguration(tableName,rowFieldName,columnFamily,timestampField,qualifierInKey);
+            return new AccumuloRecordConfiguration(tableName,rowFieldName,columnFamily,timestampField,fieldDelimiter,qualifierInKey,deleteKeys);
         }
 
 
         private String tableName;
         private String rowFieldName;
         private String columnFamily;
-        private boolean qualifierInKey;
+        private String fieldDelimiter;
+        private boolean qualifierInKey=false;
         private String timestampField;
+        private boolean deleteKeys=false;
     }
 }

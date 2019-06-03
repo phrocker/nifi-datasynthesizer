@@ -68,7 +68,7 @@ public class TestPutRecord {
         accumulo.start();
     }
 
-    private Set<Key> generateTestData(TestRunner runner, boolean valueincq, String cv) throws IOException {
+    private Set<Key> generateTestData(TestRunner runner, boolean valueincq,String delim, String cv) throws IOException {
 
         final MockRecordParser parser = new MockRecordParser();
         try {
@@ -98,11 +98,15 @@ public class TestPutRecord {
             final String cq = UUID.randomUUID().toString();
             Text keyCq = new Text("name");
             if (valueincq){
+                if (null != delim && !delim.isEmpty())
+                    keyCq.append(delim.getBytes(),0,delim.length());
                 keyCq.append(cf.getBytes(),0,cf.length());
             }
             expectedKeys.add(new Key(new Text(row), new Text("family1"), keyCq, colViz,ts));
             keyCq = new Text("code");
             if (valueincq){
+                if (null != delim && !delim.isEmpty())
+                    keyCq.append(delim.getBytes(),0,delim.length());
                 keyCq.append(cq.getBytes(),0,cq.length());
             }
             expectedKeys.add(new Key(new Text(row), new Text("family1"), keyCq, colViz, ts));
@@ -128,10 +132,14 @@ public class TestPutRecord {
     }
 
     private void basicPutSetup(boolean valueincq) throws Exception {
-        basicPutSetup(valueincq,null,null);
+        basicPutSetup(valueincq,null,null,null,false);
     }
 
-    private void basicPutSetup(boolean valueincq,String auths, Authorizations defaultVis) throws Exception {
+    private void basicPutSetup(boolean valueincq, final String delim) throws Exception {
+        basicPutSetup(valueincq,delim,null,null,false);
+    }
+
+    private void basicPutSetup(boolean valueincq,String delim, String auths, Authorizations defaultVis, boolean deletes) throws Exception {
         String tableName = UUID.randomUUID().toString();
         tableName=tableName.replace("-","a");
         accumulo.getConnector("root","password").tableOperations().create(tableName);
@@ -142,19 +150,30 @@ public class TestPutRecord {
         runner.setProperty(PutAccumuloRecord.TIMESTAMP_FIELD, "timestamp");
         if (valueincq)
         {
+            if (null != delim){
+                runner.setProperty(PutAccumuloRecord.FIELD_DELIMITER, delim);
+            }
             runner.setProperty(PutAccumuloRecord.RECORD_IN_QUALIFIER, "true");
         }
         if (null != defaultVis){
             runner.setProperty(PutAccumuloRecord.DEFAULT_VISIBILITY, auths);
         }
         AccumuloService client = MockAccumuloService.getService(runner,accumulo.getZooKeepers(),accumulo.getInstanceName(),"root","password");
-        Set<Key> expectedKeys = generateTestData(runner,valueincq, auths);
+        Set<Key> expectedKeys = generateTestData(runner,valueincq,delim, auths);
         runner.enqueue("Test".getBytes("UTF-8")); // This is to coax the processor into reading the data in the reader.l
         runner.run();
 
         List<MockFlowFile> results = runner.getFlowFilesForRelationship(PutAccumuloRecord.REL_SUCCESS);
         Assert.assertTrue("Wrong count", results.size() == 1);
         verifyKey(tableName, expectedKeys, defaultVis);
+        if (deletes){
+            runner.setProperty(PutAccumuloRecord.DELETE_KEY, "true");
+            runner.enqueue("Test".getBytes("UTF-8")); // This is to coax the processor into reading the data in the reader.l
+            runner.run();
+            runner.getFlowFilesForRelationship(PutAccumuloRecord.REL_SUCCESS);
+            verifyKey(tableName, new HashSet<>(), defaultVis);
+        }
+
     }
 
 
@@ -166,13 +185,24 @@ public class TestPutRecord {
     }
 
     @Test
+    public void testByteEncodedPutThenDelete() throws Exception {
+        basicPutSetup(true,null,"A&B",new Authorizations("A","B"),true);
+    }
+
+
+    @Test
     public void testByteEncodedPutCq() throws Exception {
         basicPutSetup(true);
     }
 
     @Test
+    public void testByteEncodedPutCqDelim() throws Exception {
+        basicPutSetup(true,"\u0000");
+    }
+
+    @Test
     public void testByteEncodedPutCqWithVis() throws Exception {
-        basicPutSetup(true,"A&B",new Authorizations("A","B"));
+        basicPutSetup(true,null,"A&B",new Authorizations("A","B"),false);
     }
 
 
