@@ -20,6 +20,9 @@ package org.poma.accumulo.nifi.controllerservices;
 import org.apache.accumulo.core.client.*;
 import org.apache.accumulo.core.client.security.tokens.AuthenticationToken;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
+import org.apache.nifi.annotation.behavior.RequiresInstanceClassLoading;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
+import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
 import org.apache.nifi.annotation.lifecycle.OnEnabled;
 import org.apache.nifi.components.PropertyDescriptor;
@@ -44,7 +47,10 @@ import java.util.List;
  * Justification: Centralizes the configuration of the connecting accumulo code. This also will be used
  * for any kerberos integration.
  */
-public class AccumuloService extends AbstractControllerService {
+@RequiresInstanceClassLoading
+@Tags({"accumulo", "client", "service"})
+@CapabilityDescription("A controller service for accessing an HBase client.")
+public class AccumuloService extends AbstractControllerService implements BaseAccumuloService {
 
     private enum AuthenticationType{
         PASSWORD,
@@ -194,6 +200,7 @@ public class AccumuloService extends AbstractControllerService {
         }
     }
 
+    @Override
     public Connector getConnector(){
         return connector;
     }

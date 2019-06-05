@@ -44,9 +44,8 @@ import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordSchema;
-import org.apache.nifi.serialization.record.util.IllegalTypeConversionException;
 import org.apache.nifi.util.StringUtils;
-import org.poma.accumulo.nifi.controllerservices.AccumuloService;
+import org.poma.accumulo.nifi.controllerservices.BaseAccumuloService;
 import org.poma.accumulo.nifi.data.AccumuloRecordConfiguration;
 
 import java.io.InputStream;
@@ -81,7 +80,7 @@ public class PutAccumuloRecord extends AbstractProcessor {
             .name("Accumulo Connector Service")
             .description("Specifies the Controller Service to use for accessing Accumulo.")
             .required(true)
-            .identifiesControllerService(AccumuloService.class)
+            .identifiesControllerService(BaseAccumuloService.class)
             .build();
 
     protected static final PropertyDescriptor MEMORY_SIZE = new PropertyDescriptor.Builder()
@@ -199,7 +198,7 @@ public class PutAccumuloRecord extends AbstractProcessor {
     /**
      * Connector service which provides us a connector if the configuration is correct.
      */
-    protected AccumuloService accumuloConnectorService;
+    protected BaseAccumuloService accumuloConnectorService;
 
     /**
      * Connector that we need to persist while we are operational.
@@ -226,7 +225,7 @@ public class PutAccumuloRecord extends AbstractProcessor {
 
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
-        accumuloConnectorService = context.getProperty(ACCUMULO_CONNECTOR_SERVICE).asControllerService(AccumuloService.class);
+        accumuloConnectorService = context.getProperty(ACCUMULO_CONNECTOR_SERVICE).asControllerService(BaseAccumuloService.class);
         final Double maxBytes = context.getProperty(MEMORY_SIZE).asDataSize(DataUnit.B);
         this.connector = accumuloConnectorService.getConnector();
         BatchWriterConfig writerConfig = new BatchWriterConfig();
@@ -441,7 +440,7 @@ public class PutAccumuloRecord extends AbstractProcessor {
                 try {
                     timestamp = record.getAsLong(config.getTimestampField());
                     fieldsToSkip.add(config.getTimestampField());
-                } catch (IllegalTypeConversionException e) {
+                } catch (Exception e) {
                     throw new AccumuloException("Could not convert " + config.getTimestampField() + " to a long", e);
                 }
 

@@ -22,7 +22,7 @@
         <version>1.0</version>
     </parent>
 
-    <artifactId>nifi-accumulo-nar</artifactId>
+    <artifactId>nifi-accumulo-services-nar</artifactId>
     <version>1.0</version>
     <packaging>nar</packaging>
     <properties>
@@ -35,10 +35,11 @@
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-api</artifactId>
             <version>${nifi.version}</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.poma.accumulo</groupId>
-            <artifactId>nifi-accumulo-processors</artifactId>
+            <artifactId>nifi-accumulo-services</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
