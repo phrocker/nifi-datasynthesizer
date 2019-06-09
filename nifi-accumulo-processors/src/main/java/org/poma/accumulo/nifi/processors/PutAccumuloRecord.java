@@ -68,20 +68,13 @@ import java.util.stream.Collectors;
 })
 /**
  * Purpose and Design: Requires a connector be defined by way of an AccumuloService object. This class
- * simply extens AbtractProcessor to extract records from a flow file. The location of a record field value can be
+ * simply extens BaseAccumuloProcessor to extract records from a flow file. The location of a record field value can be
  * placed into the value or part of the column qualifier ( this can/may change )
  *
  * Supports deletes. If the delete flag is used we'll delete keys found within that flow file.
  */
-public class PutAccumuloRecord extends AbstractProcessor {
+public class PutAccumuloRecord extends BaseAccumuloProcessor {
 
-
-    protected static final PropertyDescriptor ACCUMULO_CONNECTOR_SERVICE = new PropertyDescriptor.Builder()
-            .name("Accumulo Connector Service")
-            .description("Specifies the Controller Service to use for accessing Accumulo.")
-            .required(true)
-            .identifiesControllerService(BaseAccumuloService.class)
-            .build();
 
     protected static final PropertyDescriptor MEMORY_SIZE = new PropertyDescriptor.Builder()
             .name("Memory Size")
@@ -143,14 +136,6 @@ public class PutAccumuloRecord extends AbstractProcessor {
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
-    protected static final PropertyDescriptor TABLE_NAME = new PropertyDescriptor.Builder()
-            .name("Table Name")
-            .description("The name of the Accumulo Table into which data will be placed")
-            .required(true)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
-
     protected static final PropertyDescriptor TIMESTAMP_FIELD = new PropertyDescriptor.Builder()
             .name("timestamp-field")
             .displayName("Timestamp Field")
@@ -159,14 +144,6 @@ public class PutAccumuloRecord extends AbstractProcessor {
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
-
-    protected static final PropertyDescriptor WRITE_THREADS = new PropertyDescriptor.Builder()
-            .name("Write Threads")
-            .description("Number of write threads allowed for a batch writer")
-            .required(false)
-            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .defaultValue("10")
-            .build();
 
     protected static final PropertyDescriptor VISIBILITY_PATH = new PropertyDescriptor.Builder()
             .name("visibility-path")
@@ -183,7 +160,6 @@ public class PutAccumuloRecord extends AbstractProcessor {
             .required(false)
             .addValidator(Validator.VALID)
             .build();
-
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
@@ -229,7 +205,7 @@ public class PutAccumuloRecord extends AbstractProcessor {
         final Double maxBytes = context.getProperty(MEMORY_SIZE).asDataSize(DataUnit.B);
         this.connector = accumuloConnectorService.getConnector();
         BatchWriterConfig writerConfig = new BatchWriterConfig();
-        writerConfig.setMaxWriteThreads(context.getProperty(WRITE_THREADS).asInteger());
+        writerConfig.setMaxWriteThreads(context.getProperty(THREADS).asInteger());
         writerConfig.setMaxMemory(maxBytes.longValue());
         tableWriter = connector.createMultiTableBatchWriter(writerConfig);
     }
@@ -251,56 +227,19 @@ public class PutAccumuloRecord extends AbstractProcessor {
 
     @Override
     public final List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties = new ArrayList<>();
+        final List<PropertyDescriptor> properties = super.getSupportedPropertyDescriptors();
         properties.add(RECORD_READER_FACTORY);
-        properties.add(ACCUMULO_CONNECTOR_SERVICE);
-        properties.add(TABLE_NAME);
         properties.add(ROW_FIELD_NAME);
         properties.add(ROW_FIELD_NAME);
         properties.add(COLUMN_FAMILY);
         properties.add(DELETE_KEY);
-        properties.add(WRITE_THREADS);
-        properties.add(VISIBILITY_PATH);
         properties.add(FIELD_DELIMITER);
-        properties.add(DEFAULT_VISIBILITY);
         properties.add(MEMORY_SIZE);
         properties.add(RECORD_IN_QUALIFIER);
         properties.add(TIMESTAMP_FIELD);
+        properties.add(VISIBILITY_PATH);
+        properties.add(DEFAULT_VISIBILITY);
         return properties;
-    }
-
-
-    @Override
-    protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
-        /**
-         * Adapted from HBase puts. This is a good approach and one that we should adopt here, too.
-         */
-        if (propertyDescriptorName.startsWith("visibility.")) {
-            String[] parts = propertyDescriptorName.split("\\.");
-            String displayName;
-            String description;
-
-            if (parts.length == 2) {
-                displayName = String.format("Column Family %s Default Visibility", parts[1]);
-                description = String.format("Default visibility setting for %s", parts[1]);
-            } else if (parts.length == 3) {
-                displayName = String.format("Column Qualifier %s.%s Default Visibility", parts[1], parts[2]);
-                description = String.format("Default visibility setting for %s.%s", parts[1], parts[2]);
-            } else {
-                return null;
-            }
-
-            return new PropertyDescriptor.Builder()
-                    .name(propertyDescriptorName)
-                    .displayName(displayName)
-                    .description(description)
-                    .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
-                    .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-                    .dynamic(true)
-                    .build();
-        }
-
-        return null;
     }
 
 
@@ -537,5 +476,38 @@ public class PutAccumuloRecord extends AbstractProcessor {
         }
 
         return m;
+    }
+
+    @Override
+    protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
+        /**
+         * Adapted from HBase puts. This is a good approach and one that we should adopt here, too.
+         */
+        if (propertyDescriptorName.startsWith("visibility.")) {
+            String[] parts = propertyDescriptorName.split("\\.");
+            String displayName;
+            String description;
+
+            if (parts.length == 2) {
+                displayName = String.format("Column Family %s Default Visibility", parts[1]);
+                description = String.format("Default visibility setting for %s", parts[1]);
+            } else if (parts.length == 3) {
+                displayName = String.format("Column Qualifier %s.%s Default Visibility", parts[1], parts[2]);
+                description = String.format("Default visibility setting for %s.%s", parts[1], parts[2]);
+            } else {
+                return null;
+            }
+
+            return new PropertyDescriptor.Builder()
+                    .name(propertyDescriptorName)
+                    .displayName(displayName)
+                    .description(description)
+                    .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+                    .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+                    .dynamic(true)
+                    .build();
+        }
+
+        return null;
     }
 }
