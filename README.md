@@ -7,5 +7,3 @@ The resulting NAR will be named 'nifi-accumulo-nar'
 
 
 Note that some of this code was modeled after the HBase work.
-
-Will add a ScanAccumulo feature along with delete and updates within PutRecord.
