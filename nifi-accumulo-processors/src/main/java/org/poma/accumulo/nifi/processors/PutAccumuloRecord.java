@@ -48,6 +48,7 @@ import org.apache.nifi.util.StringUtils;
 import org.poma.accumulo.nifi.controllerservices.BaseAccumuloService;
 import org.poma.accumulo.nifi.data.AccumuloRecordConfiguration;
 
+import javax.xml.bind.DatatypeConverter;
 import java.io.InputStream;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -106,7 +107,18 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
             .displayName("Record Value In Qualifier")
             .description("Places the record value into the column qualifier instead of the value.")
             .required(false)
-            .defaultValue("false")
+            .defaultValue("False")
+            .allowableValues("True", "False")
+            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor FIELD_DELIMITER_AS_HEX = new PropertyDescriptor.Builder()
+            .name("field-delimiter-as-hex")
+            .displayName("Hex Encode Field Delimiter")
+            .description("Allows you to hex encode the delimiter as a character. So 0x00 places a null character between the record name and value.")
+            .required(false)
+            .defaultValue("False")
+            .allowableValues("True", "False")
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
             .build();
 
@@ -130,11 +142,12 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
 
     protected static final PropertyDescriptor ROW_FIELD_NAME = new PropertyDescriptor.Builder()
             .name("Row Identifier Field Name")
-            .description("Specifies the name of a record field whose value should be used as the row id for the given record.")
+            .description("Specifies the name of a record field whose value should be used as the row id for the given record. If EL defines a value that is not a field name that will be used as the row identifier.")
             .required(true)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
+
 
     protected static final PropertyDescriptor TIMESTAMP_FIELD = new PropertyDescriptor.Builder()
             .name("timestamp-field")
@@ -234,6 +247,7 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
         properties.add(COLUMN_FAMILY);
         properties.add(DELETE_KEY);
         properties.add(FIELD_DELIMITER);
+        properties.add(FIELD_DELIMITER_AS_HEX);
         properties.add(MEMORY_SIZE);
         properties.add(RECORD_IN_QUALIFIER);
         properties.add(TIMESTAMP_FIELD);
@@ -260,6 +274,7 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
                 setTableName(processContext.getProperty(TABLE_NAME).evaluateAttributeExpressions(flowFile).getValue()).
                 setColumnFamily(processContext.getProperty(COLUMN_FAMILY).evaluateAttributeExpressions(flowFile).getValue()).
                 setRowField(processContext.getProperty(ROW_FIELD_NAME).evaluateAttributeExpressions(flowFile).getValue()).
+                setEncodeFieldDelimiter(processContext.getProperty(FIELD_DELIMITER_AS_HEX).asBoolean()).
                 setFieldDelimiter(processContext.getProperty(FIELD_DELIMITER).isSet() ? processContext.getProperty(FIELD_DELIMITER).evaluateAttributeExpressions(flowFile).getValue() : "").
                 setQualifierInKey(processContext.getProperty(RECORD_IN_QUALIFIER).isSet() ? processContext.getProperty(RECORD_IN_QUALIFIER).asBoolean() : false).
                 setDelete(processContext.getProperty(DELETE_KEY).isSet() ? processContext.getProperty(DELETE_KEY).evaluateAttributeExpressions(flowFile).asBoolean() : false).
@@ -346,6 +361,16 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
 
     }
 
+    private Text getRow(final Record record,
+                        final RecordSchema schema,
+                        final String rowOrFieldName){
+        if ( !schema.getFieldNames().contains(rowOrFieldName) ){
+            return new Text(rowOrFieldName);
+        }
+        else{
+            return new Text(record.getAsString(rowOrFieldName));
+        }
+    }
 
     /**
      * Creates a mutation with the provided arguments
@@ -406,7 +431,7 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
 
             if (null != prevMutation){
                 Text row = new Text(prevMutation.getRow());
-                Text curRow = new Text(record.getAsString(config.getRowFIeld()));
+                Text curRow = getRow(record,schema,config.getRowField());
                 if (row.equals(curRow)){
                     m = prevMutation;
                 }
@@ -416,11 +441,11 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
                 }
             }
             else{
-                Text row = new Text(record.getAsString(config.getRowFIeld()));
+                Text row = getRow(record,schema,config.getRowField());
                 m = new Mutation(row);
             }
 
-            fieldsToSkip.add(config.getRowFIeld());
+            fieldsToSkip.add(config.getRowField());
 
             final Text cf = new Text(config.getColumnFamily());
 
@@ -433,8 +458,14 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
                 String recordValue  = record.getAsString(name);
                 if (config.getQualifierInKey()){
                     final String delim = config.getFieldDelimiter();
-                    if (!StringUtils.isEmpty(delim))
-                        cq.append(delim.getBytes(),0,delim.length());
+                    if (!StringUtils.isEmpty(delim)) {
+                        if (config.getEncodeDelimiter()) {
+                            byte [] asHex = DatatypeConverter.parseHexBinary(delim);
+                            cq.append(asHex, 0, asHex.length);
+                        }else{
+                            cq.append(delim.getBytes(), 0, delim.length());
+                        }
+                    }
                     cq.append(recordValue.getBytes(),0,recordValue.length());
                     value = new Value();
                 }

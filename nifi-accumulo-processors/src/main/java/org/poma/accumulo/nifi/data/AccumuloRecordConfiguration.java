@@ -29,12 +29,14 @@ public class AccumuloRecordConfiguration {
     private String columnFamily;
     private String timestampField;
     private String fieldDelimiter;
+    private boolean encodeFieldDelimiter;
     private boolean qualifierInKey;
     private boolean deleteKeys;
 
 
     protected AccumuloRecordConfiguration(final String tableName, final String rowFieldName, final String columnFamily,
                                           final String timestampField, final String fieldDelimiter,
+                                          final boolean encodeFieldDelimiter,
                                           final boolean qualifierInKey, final boolean deleteKeys)
     {
         this.tableName=tableName;
@@ -42,6 +44,7 @@ public class AccumuloRecordConfiguration {
         this.columnFamily=columnFamily;
         this.timestampField=timestampField;
         this.fieldDelimiter=fieldDelimiter;
+        this.encodeFieldDelimiter=encodeFieldDelimiter;
         this.qualifierInKey=qualifierInKey;
         this.deleteKeys=deleteKeys;
     }
@@ -54,6 +57,7 @@ public class AccumuloRecordConfiguration {
         return columnFamily;
     }
 
+    public boolean getEncodeDelimiter(){ return encodeFieldDelimiter; }
 
     public String getTimestampField(){
         return timestampField;
@@ -72,7 +76,7 @@ public class AccumuloRecordConfiguration {
     }
 
 
-    public String getRowFIeld(){
+    public String getRowField(){
         return rowFieldName;
     }
 
@@ -92,6 +96,10 @@ public class AccumuloRecordConfiguration {
             return this;
         }
 
+        public Builder setEncodeFieldDelimiter(final boolean encodeFieldDelimiter){
+            this.encodeFieldDelimiter=encodeFieldDelimiter;
+            return this;
+        }
 
 
         public Builder setColumnFamily(final String columnFamily){
@@ -120,7 +128,7 @@ public class AccumuloRecordConfiguration {
         }
 
         public AccumuloRecordConfiguration build(){
-            return new AccumuloRecordConfiguration(tableName,rowFieldName,columnFamily,timestampField,fieldDelimiter,qualifierInKey,deleteKeys);
+            return new AccumuloRecordConfiguration(tableName,rowFieldName,columnFamily,timestampField,fieldDelimiter,encodeFieldDelimiter,qualifierInKey,deleteKeys);
         }
 
 
@@ -129,6 +137,7 @@ public class AccumuloRecordConfiguration {
         private String columnFamily;
         private String fieldDelimiter;
         private boolean qualifierInKey=false;
+        private boolean encodeFieldDelimiter=false;
         private String timestampField;
         private boolean deleteKeys=false;
     }

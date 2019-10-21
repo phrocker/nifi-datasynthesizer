@@ -136,15 +136,15 @@ public class TestScanAccumulo {
 
     }
 
-    private void basicPutSetup(boolean valueincq) throws Exception {
-        basicPutSetup(valueincq,null,null,null,false);
+    private void basicPutSetup(boolean sendFlowFile, boolean valueincq) throws Exception {
+        basicPutSetup(sendFlowFile,valueincq,null,null,null,false);
     }
 
-    private void basicPutSetup(boolean valueincq, final String delim) throws Exception {
-        basicPutSetup(valueincq,delim,null,null,false);
+    private void basicPutSetup(boolean sendFlowFile, boolean valueincq, final String delim) throws Exception {
+        basicPutSetup(sendFlowFile,valueincq,delim,null,null,false);
     }
 
-    private void basicPutSetup(boolean valueincq,String delim, String auths, Authorizations defaultVis, boolean deletes) throws Exception {
+    private void basicPutSetup(boolean sendFlowFile, boolean valueincq,String delim, String auths, Authorizations defaultVis, boolean deletes) throws Exception {
         String tableName = UUID.randomUUID().toString();
         tableName=tableName.replace("-","a");
         accumulo.getConnector("root","password").tableOperations().create(tableName);
@@ -157,7 +157,9 @@ public class TestScanAccumulo {
 
         AccumuloService client = MockAccumuloService.getService(runner,accumulo.getZooKeepers(),accumulo.getInstanceName(),"root","password");
         Set<Key> expectedKeys = generateTestData(runner,tableName,valueincq,delim, auths);
-        runner.enqueue("Test".getBytes("UTF-8")); // This is to coax the processor into reading the data in the reader.l
+        if (sendFlowFile) {
+            runner.enqueue("Test".getBytes("UTF-8")); // This is to coax the processor into reading the data in the reader.l
+        }
         runner.run();
 
 
@@ -173,8 +175,13 @@ public class TestScanAccumulo {
 
 
     @Test
-    public void testPullData() throws Exception {
-        basicPutSetup(false);
+    public void testPullDatWithFlowFile() throws Exception {
+        basicPutSetup(true,false);
+    }
+
+    @Test
+    public void testPullDatWithOutFlowFile() throws Exception {
+        basicPutSetup(false,false);
     }
 
 
