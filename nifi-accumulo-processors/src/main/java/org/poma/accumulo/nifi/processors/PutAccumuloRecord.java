@@ -19,6 +19,7 @@ package org.poma.accumulo.nifi.processors;
 
 
 import org.apache.accumulo.core.client.*;
+import org.apache.accumulo.core.client.admin.TableOperations;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.ColumnVisibility;
@@ -27,9 +28,9 @@ import org.apache.nifi.annotation.behavior.*;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
-import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.PropertyValue;
-import org.apache.nifi.components.Validator;
+import org.apache.nifi.annotation.lifecycle.OnStopped;
+import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
+import org.apache.nifi.components.*;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.*;
@@ -51,6 +52,7 @@ import org.poma.accumulo.nifi.data.AccumuloRecordConfiguration;
 import javax.xml.bind.DatatypeConverter;
 import java.io.InputStream;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @EventDriven
@@ -88,9 +90,17 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
     protected static final PropertyDescriptor COLUMN_FAMILY = new PropertyDescriptor.Builder()
             .name("Column Family")
             .description("The Column Family to use when inserting data into Accumulo")
-            .required(true)
+            .required(false)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .addValidator(Validator.VALID)
+            .build();
+
+    protected static final PropertyDescriptor COLUMN_FAMILY_FIELD = new PropertyDescriptor.Builder()
+            .name("Column Family Field")
+            .description("Field name used as the column family if one is not specified above.")
+            .required(false)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .addValidator(Validator.VALID)
             .build();
 
     protected static final PropertyDescriptor DELETE_KEY = new PropertyDescriptor.Builder()
@@ -108,6 +118,16 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
             .description("Places the record value into the column qualifier instead of the value.")
             .required(false)
             .defaultValue("False")
+            .allowableValues("True", "False")
+            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor FLUSH_ON_FLOWFILE = new PropertyDescriptor.Builder()
+            .name("flush-on-flow-file")
+            .displayName("Flush Every FlowFile")
+            .description("Flushes the table writer on every flow file.")
+            .required(true)
+            .defaultValue("True")
             .allowableValues("True", "False")
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
             .build();
@@ -204,12 +224,28 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
      */
     protected RecordPathCache recordPathCache;
 
+
+    /**
+     * Flushes the tableWriter on every flow file if true.
+     */
+    protected boolean flushOnEveryFlow;
+
     @Override
     public Set<Relationship> getRelationships() {
         final Set<Relationship> rels = new HashSet<>();
         rels.add(REL_SUCCESS);
         rels.add(REL_FAILURE);
         return rels;
+    }
+
+    @Override
+    protected Collection<ValidationResult> customValidate(ValidationContext validationContext) {
+        Collection<ValidationResult> set = Collections.emptySet();
+        if (!validationContext.getProperty(COLUMN_FAMILY).isSet() && !validationContext.getProperty(COLUMN_FAMILY_FIELD).isSet())
+            set.add(new ValidationResult.Builder().explanation("Column Family OR Column family field name must be defined").build());
+        else if (validationContext.getProperty(COLUMN_FAMILY).isSet() && validationContext.getProperty(COLUMN_FAMILY_FIELD).isSet())
+            set.add(new ValidationResult.Builder().explanation("Column Family OR Column family field name must be defined, but not both").build());
+        return set;
     }
 
     @OnScheduled
@@ -221,10 +257,30 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
         writerConfig.setMaxWriteThreads(context.getProperty(THREADS).asInteger());
         writerConfig.setMaxMemory(maxBytes.longValue());
         tableWriter = connector.createMultiTableBatchWriter(writerConfig);
+        flushOnEveryFlow = context.getProperty(FLUSH_ON_FLOWFILE).asBoolean();
+        if (!flushOnEveryFlow){
+            writerConfig.setMaxLatency(60, TimeUnit.SECONDS);
+        }
+        if (context.getProperty(CREATE_TABLE).asBoolean() && !context.getProperty(TABLE_NAME).isExpressionLanguagePresent()) {
+            final String table = context.getProperty(TABLE_NAME).getValue();
+              final TableOperations tableOps = this.connector.tableOperations();
+              if (!tableOps.exists(table)) {
+                  getLogger().info("Creating " + table + " table.");
+                  try {
+                      tableOps.create(table);
+                  } catch (TableExistsException te) {
+                      // can safely ignore
+                  } catch (AccumuloSecurityException | AccumuloException e) {
+                      getLogger().info("Accumulo or Security error creating. Continuing... " + table + ". ", e);
+                  }
+              }
+        }
     }
 
+
+    @OnUnscheduled
     @OnDisabled
-    public void shutdown(){
+    public synchronized void shutdown(){
         /**
          * Close the writer when we are shut down.
          */
@@ -245,7 +301,9 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
         properties.add(ROW_FIELD_NAME);
         properties.add(ROW_FIELD_NAME);
         properties.add(COLUMN_FAMILY);
+        properties.add(COLUMN_FAMILY_FIELD);
         properties.add(DELETE_KEY);
+        properties.add(FLUSH_ON_FLOWFILE);
         properties.add(FIELD_DELIMITER);
         properties.add(FIELD_DELIMITER_AS_HEX);
         properties.add(MEMORY_SIZE);
@@ -273,6 +331,7 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
         AccumuloRecordConfiguration builder = AccumuloRecordConfiguration.Builder.newBuilder().
                 setTableName(processContext.getProperty(TABLE_NAME).evaluateAttributeExpressions(flowFile).getValue()).
                 setColumnFamily(processContext.getProperty(COLUMN_FAMILY).evaluateAttributeExpressions(flowFile).getValue()).
+                setColumnFamilyField(processContext.getProperty(COLUMN_FAMILY_FIELD).evaluateAttributeExpressions(flowFile).getValue()).
                 setRowField(processContext.getProperty(ROW_FIELD_NAME).evaluateAttributeExpressions(flowFile).getValue()).
                 setEncodeFieldDelimiter(processContext.getProperty(FIELD_DELIMITER_AS_HEX).asBoolean()).
                 setFieldDelimiter(processContext.getProperty(FIELD_DELIMITER).isSet() ? processContext.getProperty(FIELD_DELIMITER).evaluateAttributeExpressions(flowFile).getValue() : "").
@@ -301,22 +360,24 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
             }
             addMutation(builder.getTableName(),prevMutation);
         } catch (Exception ex) {
+            ex.printStackTrace();
             getLogger().error("Failed to put records to Accumulo.", ex);
             failed = true;
         }
 
+        if (flushOnEveryFlow){
+            try {
+                tableWriter.flush();
+            } catch (MutationsRejectedException e) {
+                throw new ProcessException(e);
+            }
+        }
 
 
         if (!failed) {
             processSession.transfer(flowFile, REL_SUCCESS);
         } else {
             processSession.transfer(processSession.penalize(flowFile), REL_FAILURE);
-        }
-
-        try {
-            tableWriter.flush();
-        } catch (MutationsRejectedException e) {
-            e.printStackTrace();
         }
 
         processSession.commit();
@@ -447,7 +508,16 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
 
             fieldsToSkip.add(config.getRowField());
 
-            final Text cf = new Text(config.getColumnFamily());
+            String columnFamily = config.getColumnFamily();
+            if (StringUtils.isBlank(columnFamily) && !StringUtils.isBlank(config.getColumnFamilyField())) {
+                final String cfField = config.getColumnFamilyField();
+                columnFamily = record.getAsString(cfField);
+                fieldsToSkip.add(cfField);
+            }
+            else if (StringUtils.isBlank(columnFamily) && StringUtils.isBlank(config.getColumnFamilyField())){
+                throw new IllegalArgumentException("Invalid configuration for column family " + columnFamily + " and " + config.getColumnFamilyField());
+            }
+            final Text cf = new Text(columnFamily);
 
             for (String name : schema.getFieldNames().stream().filter(p->!fieldsToSkip.contains(p)).collect(Collectors.toList())) {
                 String visString = (visField != null && visSettings != null && visSettings.containsKey(name))

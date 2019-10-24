@@ -31,6 +31,15 @@ public abstract class BaseAccumuloProcessor extends AbstractProcessor {
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
+    protected static final PropertyDescriptor CREATE_TABLE = new PropertyDescriptor.Builder()
+            .name("Create Table")
+            .description("Creates a table if it does not exist. This property will only be used when EL is not present in 'Table Name'")
+            .required(true)
+            .defaultValue("False")
+            .allowableValues("True", "False")
+            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .build();
+
 
     protected static final PropertyDescriptor THREADS = new PropertyDescriptor.Builder()
             .name("Threads")
@@ -46,6 +55,7 @@ public abstract class BaseAccumuloProcessor extends AbstractProcessor {
         final List<PropertyDescriptor> properties = new ArrayList<>();
         properties.add(ACCUMULO_CONNECTOR_SERVICE);
         properties.add(TABLE_NAME);
+        properties.add(CREATE_TABLE);
         properties.add(THREADS);
         return properties;
     }

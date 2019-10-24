@@ -23,10 +23,13 @@ import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
+import org.apache.hadoop.io.Text;
 import org.apache.nifi.annotation.behavior.*;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.ValidationContext;
+import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.Validator;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
@@ -65,9 +68,6 @@ import java.util.concurrent.atomic.LongAdder;
  *
  */
 public class ScanAccumulo extends BaseAccumuloProcessor {
-
-
-
     static final PropertyDescriptor START_KEY = new PropertyDescriptor.Builder()
             .displayName("Start key")
             .name("start-key")
@@ -115,6 +115,23 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
             .addValidator(Validator.VALID)
             .build();
 
+    static final PropertyDescriptor COLUMNFAMILY = new PropertyDescriptor.Builder()
+            .name("column-family")
+            .displayName("Start Column Family")
+            .description("The column family that is part of the start key. If no column key is defined only this column family will be selected")
+            .required(false)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .addValidator(Validator.VALID)
+            .build();
+
+    static final PropertyDescriptor COLUMNFAMILY_END = new PropertyDescriptor.Builder()
+            .name("column-family-end")
+            .displayName("End Column Family")
+            .description("The column family to select is part of end key")
+            .required(false)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .addValidator(Validator.VALID)
+            .build();
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
@@ -147,6 +164,15 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
     }
 
 
+    @Override
+    protected Collection<ValidationResult> customValidate(ValidationContext validationContext) {
+        Collection<ValidationResult> set = new ArrayList<>();
+        if ((validationContext.getProperty(COLUMNFAMILY).isSet() && !validationContext.getProperty(COLUMNFAMILY_END).isSet())
+        || !validationContext.getProperty(COLUMNFAMILY).isSet() && validationContext.getProperty(COLUMNFAMILY_END).isSet() )
+            set.add(new ValidationResult.Builder().explanation("Column Family and Column family end  must be defined").build());
+        return set;
+    }
+
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
         accumuloConnectorService = context.getProperty(ACCUMULO_CONNECTOR_SERVICE).asControllerService(BaseAccumuloService.class);
@@ -168,14 +194,18 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
         final String endKey = processContext.getProperty(END_KEY).evaluateAttributeExpressions(flowFile).getValue();
         final String authorizations = processContext.getProperty(AUTHORIZATIONS).evaluateAttributeExpressions(flowFile).getValue();
         final int threads = processContext.getProperty(THREADS).asInteger();
+        final String startKeyCf = processContext.getProperty(COLUMNFAMILY).evaluateAttributeExpressions(flowFile).getValue();
+        final String endKeyCf = processContext.getProperty(COLUMNFAMILY_END).evaluateAttributeExpressions(flowFile).getValue();
 
         final Authorizations auths = stringToAuth(authorizations);
 
         final LongAdder recordCounter = new LongAdder();
 
-        final Range lookupRange = new Range(StringUtils.isEmpty(startKey) ? null : startKey,startKeyInclusive,StringUtils.isEmpty(endKey) ? null : endKey,endKeyInclusive);
+        final Range lookupRange = buildRange(startKey,startKeyCf,startKeyInclusive,endKey,endKeyCf,endKeyInclusive);
 
         try (BatchScanner scanner = connector.createBatchScanner(table,auths,threads)) {
+            if (!StringUtils.isBlank(startKeyCf) &&  StringUtils.isBlank(endKeyCf))
+                scanner.fetchColumnFamily(new Text(startKeyCf));
             scanner.setRanges(Collections.singleton(lookupRange));
 
             final Iterator<Map.Entry<Key,Value>> kvIter = scanner.iterator();
@@ -252,10 +282,18 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
         return recordCounter.longValue();
     }
 
+    Range buildRange(final String startRow, final String startKeyCf,boolean startKeyInclusive, final String endRow, final String endKeyCf,boolean endKeyInclusive){
+        Key start = StringUtils.isBlank(startRow) ? null : StringUtils.isBlank(startKeyCf) ? new Key(startRow) : new Key(startRow,startKeyCf);
+        Key end = StringUtils.isBlank(endRow) ? null : StringUtils.isBlank(endKeyCf) ? new Key(endRow) : new Key(endRow,endKeyCf);
+        return new Range(start,startKeyInclusive,end,endKeyInclusive);
+    }
+
     protected long  scanWithProperties(final RecordSetWriterFactory writerFactory,final ProcessContext processContext, final ProcessSession processSession){
         Map<String,String> stubbedAttributes = new HashMap<>();
         final String table = processContext.getProperty(TABLE_NAME).evaluateAttributeExpressions(stubbedAttributes).getValue();
         final String startKey = processContext.getProperty(START_KEY).evaluateAttributeExpressions(stubbedAttributes).getValue();
+        final String startKeyCf = processContext.getProperty(COLUMNFAMILY).evaluateAttributeExpressions(stubbedAttributes).getValue();
+        final String endKeyCf = processContext.getProperty(COLUMNFAMILY_END).evaluateAttributeExpressions(stubbedAttributes).getValue();
         final String endKey = processContext.getProperty(END_KEY).evaluateAttributeExpressions(stubbedAttributes).getValue();
         final String authorizations = processContext.getProperty(AUTHORIZATIONS).evaluateAttributeExpressions(stubbedAttributes).getValue();
         final boolean startKeyInclusive = processContext.getProperty(START_KEY_INCLUSIVE).asBoolean();
@@ -266,9 +304,11 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
 
         final LongAdder recordCounter = new LongAdder();
 
-        Range lookupRange = new Range(StringUtils.isEmpty(startKey) ? null : startKey,startKeyInclusive,StringUtils.isEmpty(endKey) ? null : endKey,endKeyInclusive);
+        final Range lookupRange = buildRange(startKey,startKeyCf,startKeyInclusive,endKey,endKeyCf,endKeyInclusive);
 
         try (BatchScanner scanner = connector.createBatchScanner(table,auths,threads)) {
+            if (!StringUtils.isBlank(startKeyCf) &&  StringUtils.isBlank(endKeyCf))
+                scanner.fetchColumnFamily(new Text(startKeyCf));
             scanner.setRanges(Collections.singleton(lookupRange));
 
             final Iterator<Map.Entry<Key,Value>> kvIter = scanner.iterator();
@@ -301,6 +341,8 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
                                         Map.Entry<Key, Value> kv = kvIter.next();
 
                                         final Key key = kv.getKey();
+
+                                        System.out.println(key);
 
                                         Map<String, Object> data = new HashMap<>();
                                         data.put("row", key.getRow().toString());
@@ -366,6 +408,8 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
         properties.add(START_KEY);
         properties.add(START_KEY_INCLUSIVE);
         properties.add(END_KEY);
+        properties.add(COLUMNFAMILY);
+        properties.add(COLUMNFAMILY_END);
         properties.add(END_KEY_INCLUSIVE);
         properties.add(RECORD_WRITER);
         properties.add(AUTHORIZATIONS);

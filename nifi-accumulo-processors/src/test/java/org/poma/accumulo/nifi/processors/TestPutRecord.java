@@ -147,13 +147,14 @@ public class TestPutRecord {
         accumulo.getConnector("root","password").securityOperations().changeUserAuthorizations("root",defaultVis);
         TestRunner runner = getTestRunner(tableName, DEFAULT_COLUMN_FAMILY);
         runner.setProperty(PutAccumuloRecord.ROW_FIELD_NAME, "id");
+        runner.setProperty(PutAccumuloRecord.COLUMN_FAMILY, DEFAULT_COLUMN_FAMILY);
         runner.setProperty(PutAccumuloRecord.TIMESTAMP_FIELD, "timestamp");
         if (valueincq)
         {
             if (null != delim){
                 runner.setProperty(PutAccumuloRecord.FIELD_DELIMITER, delim);
             }
-            runner.setProperty(PutAccumuloRecord.RECORD_IN_QUALIFIER, "true");
+            runner.setProperty(PutAccumuloRecord.RECORD_IN_QUALIFIER, "True");
         }
         if (null != defaultVis){
             runner.setProperty(PutAccumuloRecord.DEFAULT_VISIBILITY, auths);
