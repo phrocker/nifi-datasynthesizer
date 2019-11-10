@@ -40,6 +40,7 @@ import org.apache.nifi.serialization.RecordReader;
 import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.record.Record;
 import org.poma.accumulo.nifi.controllerservices.BaseAccumuloService;
+import org.poma.accumulo.nifi.data.ContentRecordHandler;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -123,7 +124,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
     }
 
     @OnScheduled
-    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
+    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException, TableExistsException, AccumuloSecurityException, AccumuloException {
 
         recordParserFactory = context.getProperty(RECORD_READER_FACTORY)
                 .asControllerService(RecordReaderFactory.class);
@@ -144,6 +145,10 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         tableWriter = connector.createMultiTableBatchWriter(writerConfig);
         final String table = context.getProperty(TABLE_NAME).getValue();
 
+        if ( ! connector.tableOperations().exists("shardIndex") ){
+            connector.tableOperations().creatge("shardIndex");
+            connector.tableOperations().create("shardReverseIndex");
+        }
 
         conf = new Configuration();
         final Map<String,String> properties = context.getAllProperties();
@@ -154,6 +159,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         conf.set("data.name",dataTypeName);
         conf.set("num.shards","1");
         conf.set("shard.table.name",table);
+        conf.set("csv.data.category.index.list.fields","CODE,NAME");
         conf.set("shard.global.index.table.name","shardIndex");
         conf.set("shard.global.rindex.table.name","shardReverse");
 
@@ -165,7 +171,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         conf.set("csv.data.process.extra.fields","true");
 
 
-        type = new Type(dataTypeName, IngestHelper.class, DatawaveRecordReader.class, new String[] {ContentCSVColumnBasedHandler.class.getName()}, 10, null);
+        type = new Type(dataTypeName, IngestHelper.class, DatawaveRecordReader.class, new String[] {ContentRecordHandler.class.getName()}, 10, null);
 
         TypeRegistry registry = TypeRegistry.getInstance(conf);
         registry.put(dataTypeName, type);

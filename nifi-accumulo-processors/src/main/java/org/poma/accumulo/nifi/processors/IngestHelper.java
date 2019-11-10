@@ -1,12 +1,11 @@
 package org.poma.accumulo.nifi.processors;
 
 import com.google.common.collect.Multimap;
-import datawave.ingest.csv.config.helper.ExtendedCSVIngestHelper;
 import datawave.ingest.data.RawRecordContainer;
 import datawave.ingest.data.config.NormalizedContentInterface;
-import datawave.ingest.data.config.ingest.BaseIngestHelper;
+import org.poma.accumulo.nifi.data.RecordIIngestHelper;
 
-public class IngestHelper extends ExtendedCSVIngestHelper {
+public class IngestHelper extends RecordIIngestHelper {
 
 
     static Multimap<String,String> map;
