@@ -20,9 +20,9 @@ import org.apache.log4j.Logger;
 import java.util.Map.Entry;
 import java.util.Set;
 
-public class RecordIIngestHelper extends CSVIngestHelper {
+public class RecordIngestHelper extends CSVIngestHelper {
     
-    private static final Logger log = Logger.getLogger(RecordIIngestHelper.class);
+    private static final Logger log = Logger.getLogger(RecordIngestHelper.class);
     
     protected RecordDataTypeHelper helper = null;
     private EventFieldNormalizerHelper eventFieldNormalizerHelper = null;

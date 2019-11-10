@@ -9,7 +9,8 @@ import java.io.IOException;
 import java.util.Queue;
 import java.util.concurrent.atomic.LongAdder;
 
-public class DatawaveRecordReader extends org.apache.hadoop.mapreduce.RecordReader<LongWritable, RawRecordContainer> {
+public class
+DatawaveRecordReader extends org.apache.hadoop.mapreduce.RecordReader<LongWritable, RawRecordContainer> {
 
     private static LongAdder adder = new LongAdder();
 

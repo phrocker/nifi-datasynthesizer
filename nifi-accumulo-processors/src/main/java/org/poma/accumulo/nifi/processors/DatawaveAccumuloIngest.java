@@ -76,6 +76,37 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
+    protected static final PropertyDescriptor INDEXED_FIELDS = new PropertyDescriptor.Builder()
+            .name("Indexed Fields")
+            .description("Comma separated list of fields used for UUID calculation")
+            .required(false).expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor INDEX_TABLE_NAME = new PropertyDescriptor.Builder()
+            .name("Index Table Name")
+            .description("Index table name")
+            .required(true)
+            .defaultValue("shardIndex")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor REVERSE_INDEX_TABLE_NAME = new PropertyDescriptor.Builder()
+            .name("Reverse Index Table Name")
+            .description("Reverse Index table name")
+            .required(true)
+            .defaultValue("shardReverseIndex")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor NUM_SHARD = new PropertyDescriptor.Builder()
+            .name("Num shards")
+            .description("Number of shards")
+            .required(true)
+            .defaultValue("1")
+            .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
+            .build();
+
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
@@ -123,6 +154,10 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
     public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         final List<PropertyDescriptor> properties = super.getSupportedPropertyDescriptors();
         properties.add(DATA_NAME);
+        properties.add(INDEXED_FIELDS);
+        properties.add(INDEX_TABLE_NAME);
+        properties.add(REVERSE_INDEX_TABLE_NAME);
+        properties.add(NUM_SHARD);
         properties.add(INGEST_HELPER);
         properties.add(RECORD_READER);
         properties.add(DATA_HANDLER_CLASS);

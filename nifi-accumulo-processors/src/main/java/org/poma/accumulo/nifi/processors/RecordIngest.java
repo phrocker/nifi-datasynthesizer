@@ -1,9 +1,11 @@
 package org.poma.accumulo.nifi.processors;
 
+import com.google.common.base.Splitter;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import datawave.data.hash.UID;
 import datawave.data.hash.UIDBuilder;
+import datawave.data.type.LcNoDiacriticsType;
 import datawave.ingest.config.RawRecordContainerImpl;
 import datawave.ingest.csv.mr.handler.ContentCSVColumnBasedHandler;
 import datawave.ingest.data.RawRecordContainer;
@@ -41,6 +43,7 @@ import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.record.Record;
 import org.poma.accumulo.nifi.controllerservices.BaseAccumuloService;
 import org.poma.accumulo.nifi.data.ContentRecordHandler;
+import org.poma.accumulo.nifi.data.RecordContainer;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -145,9 +148,16 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         tableWriter = connector.createMultiTableBatchWriter(writerConfig);
         final String table = context.getProperty(TABLE_NAME).getValue();
 
-        if ( ! connector.tableOperations().exists("shardIndex") ){
-            connector.tableOperations().creatge("shardIndex");
-            connector.tableOperations().create("shardReverseIndex");
+        final boolean createTables = context.getProperty(CREATE_TABLE).asBoolean();
+
+        final String indexTable = context.getProperty(INDEX_TABLE_NAME).getValue();
+        final String reverseIndexTable = context.getProperty(REVERSE_INDEX_TABLE_NAME).getValue();
+
+        final Integer shards = context.getProperty(NUM_SHARD).asInteger();
+
+        if ( createTables && ! connector.tableOperations().exists(indexTable) ){
+            connector.tableOperations().create(indexTable);
+            connector.tableOperations().create(reverseIndexTable);
         }
 
         conf = new Configuration();
@@ -157,11 +167,11 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 conf.set(x,y);
         });
         conf.set("data.name",dataTypeName);
-        conf.set("num.shards","1");
+        conf.set("num.shards",shards.toString());
         conf.set("shard.table.name",table);
-        conf.set("csv.data.category.index.list.fields","CODE,NAME");
-        conf.set("shard.global.index.table.name","shardIndex");
-        conf.set("shard.global.rindex.table.name","shardReverse");
+        conf.set("csv.data.default.type.class", LcNoDiacriticsType.class.getCanonicalName());
+        conf.set("shard.global.index.table.name",indexTable);
+        conf.set("shard.global.rindex.table.name",reverseIndexTable);
 
         conf.set("all.ingest.policy.enforcer.class","datawave.policy.ExampleIngestPolicyEnforcer");
         conf.set("all.date.index.type.to.field.map","LOADED=LOAD_DATE");
@@ -209,11 +219,14 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         if (flowFile == null) {
             return;
         }
+
+        final String indexFields = processContext.getProperty(INDEXED_FIELDS).evaluateAttributeExpressions(flowFile).getValue();
+
         Set<String> fieldsToSkip = new HashSet<>();
 
         AccumuloRecordWriter recordWriter = new AccumuloRecordWriter(tableWriter);
 
-        final RawRecordContainer event = new RawRecordContainerImpl();
+        final RecordContainer event = new RecordContainer();
 
         TaskAttemptID id = new TaskAttemptID("testJob", 0, TaskType.MAP, 0, 0);
 
@@ -230,7 +243,11 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 event.setRawFileName(flowFile.getAttribute("filename"));
                 event.setRawFileTimestamp(flowFile.getEntryDate());
                 event.setDate(flowFile.getEntryDate());
-                ((RawRecordContainerImpl) event).setVisibility("");
+                event.setVisibility("");
+
+                ArrayList<String> indexedFields = new ArrayList<>();
+                Splitter.on(",").split(indexFields).forEach(indexedFields::add);
+                event.addIndexedFields(indexedFields);
 
                 Multimap<String,String> map = HashMultimap.create();
                 for (String name : reader.getSchema().getFieldNames().stream().filter(p -> !fieldsToSkip.contains(p)).collect(Collectors.toList())) {
@@ -245,7 +262,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                     map.put(name,recordValue);
                 }
 
-                IngestHelper.setMap(map);
+                event.setMap(map);
 
 
 

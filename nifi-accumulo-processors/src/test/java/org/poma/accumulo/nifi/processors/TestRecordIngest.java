@@ -55,9 +55,10 @@ public class TestRecordIngest {
         final TestRunner runner = TestRunners.newTestRunner(RecordIngest.class);
         runner.enforceReadStreamsClosed(false);
         runner.setProperty(RecordIngest.TABLE_NAME, table);
-        runner.setProperty(RecordIngest.CREATE_TABLE, "False");
+        runner.setProperty(RecordIngest.CREATE_TABLE, "True");
         runner.setProperty(RecordIngest.THREADS, "2");
         runner.setProperty(RecordIngest.DATA_NAME, "csv");
+        runner.setProperty(RecordIngest.INDEXED_FIELDS, "CODE");
         runner.setProperty(RecordIngest.INGEST_HELPER, CSVIngestHelper.class.getCanonicalName());
         return runner;
     }

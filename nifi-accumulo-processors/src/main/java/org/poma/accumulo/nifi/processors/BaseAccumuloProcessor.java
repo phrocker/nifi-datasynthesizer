@@ -32,7 +32,7 @@ public abstract class BaseAccumuloProcessor extends AbstractProcessor {
 
     protected static final PropertyDescriptor CREATE_TABLE = new PropertyDescriptor.Builder()
             .name("Create Table")
-            .description("Creates a table if it does not exist. This property will only be used when EL is not present in 'Table Name'")
+            .description("Creates the table(s) if they does not exist. This property will only be used when EL is not present in 'Table Name'")
             .required(true)
             .defaultValue("False")
             .allowableValues("True", "False")
