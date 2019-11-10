@@ -42,7 +42,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
-public class TestPutRecord {
+public class TestRecordIngest {
 
     public static final String DEFAULT_COLUMN_FAMILY = "family1";
 

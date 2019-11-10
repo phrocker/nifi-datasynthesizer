@@ -28,6 +28,23 @@
         <module>nifi-accumulo-nar</module>
     </modules>
 
+    <dependencyManagement>
+    <dependencies>
+
+    <dependency>
+        <groupId>gov.nsa.datawave</groupId>
+        <artifactId>datawave-ingest-csv</artifactId>
+        <version>3.1.0-SNAPSHOT</version>
+    </dependency>
+        <dependency>
+        <groupId>gov.nsa.datawave</groupId>
+        <artifactId>datawave-ingest-core</artifactId>
+        <version>3.1.0-SNAPSHOT</version>
+    </dependency>
+
+    </dependencies>
+    </dependencyManagement>
+
     <build>
         <plugins>
             <plugin>

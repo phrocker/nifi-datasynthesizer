@@ -69,7 +69,7 @@ public class TestScanAccumulo {
         accumulo.start();
     }
 
-    private Set<Key> generateTestData(TestRunner runner, String table, boolean valueincq,String delim, String cv) throws IOException, AccumuloSecurityException, AccumuloException, TableNotFoundException {
+    private Set<Key> generateTestData(TestRunner runner,String definedRow, String table, boolean valueincq,String delim, String cv) throws IOException, AccumuloSecurityException, AccumuloException, TableNotFoundException {
 
         BatchWriterConfig writerConfig = new BatchWriterConfig();
         writerConfig.setMaxWriteThreads(2);
@@ -96,7 +96,7 @@ public class TestScanAccumulo {
         Random random = new Random();
         for (int x = 0; x < 5; x++) {
             //final int row = random.nextInt(10000000);
-            final String row = UUID.randomUUID().toString();
+            final String row = definedRow.isEmpty() ? UUID.randomUUID().toString() : definedRow;
             final String cf = UUID.randomUUID().toString();
             final String cq = UUID.randomUUID().toString();
             Text keyCq = new Text("name");
@@ -105,16 +105,16 @@ public class TestScanAccumulo {
                     keyCq.append(delim.getBytes(),0,delim.length());
                 keyCq.append(cf.getBytes(),0,cf.length());
             }
-            expectedKeys.add(new Key(new Text(row), new Text("family1"), keyCq, colViz,ts));
+            expectedKeys.add(new Key(new Text(row), new Text(DEFAULT_COLUMN_FAMILY), keyCq, colViz,ts));
             keyCq = new Text("code");
             if (valueincq){
                 if (null != delim && !delim.isEmpty())
                     keyCq.append(delim.getBytes(),0,delim.length());
                 keyCq.append(cq.getBytes(),0,cq.length());
             }
-            expectedKeys.add(new Key(new Text(row), new Text("family1"), keyCq, colViz, ts));
+            expectedKeys.add(new Key(new Text(row), new Text(DEFAULT_COLUMN_FAMILY), keyCq, colViz, ts));
             Mutation m = new Mutation(row);
-            m.put(new Text("family1"),new Text(keyCq),colViz,ts, new Value());
+            m.put(new Text(DEFAULT_COLUMN_FAMILY),new Text(keyCq),colViz,ts, new Value());
             writer.getBatchWriter(table).addMutation(m);
         }
         writer.flush();
@@ -136,35 +136,41 @@ public class TestScanAccumulo {
 
     }
 
-    private void basicPutSetup(boolean valueincq) throws Exception {
-        basicPutSetup(valueincq,null,null,null,false);
+    private void basicPutSetup(boolean sendFlowFile, boolean valueincq) throws Exception {
+        basicPutSetup(sendFlowFile,"","","","",valueincq,null,"",null,false,5);
     }
 
-    private void basicPutSetup(boolean valueincq, final String delim) throws Exception {
-        basicPutSetup(valueincq,delim,null,null,false);
+    private void basicPutSetup(boolean sendFlowFile, boolean valueincq, final String delim) throws Exception {
+        basicPutSetup(sendFlowFile,"","","","",valueincq,delim,"",null,false,5);
     }
 
-    private void basicPutSetup(boolean valueincq,String delim, String auths, Authorizations defaultVis, boolean deletes) throws Exception {
+    private void basicPutSetup(boolean sendFlowFile,String row,String endrow, String cf,String endcf, boolean valueincq,String delim, String auths, Authorizations defaultVis, boolean deletes, int expected) throws Exception {
         String tableName = UUID.randomUUID().toString();
         tableName=tableName.replace("-","a");
         accumulo.getConnector("root","password").tableOperations().create(tableName);
         if (null != defaultVis)
         accumulo.getConnector("root","password").securityOperations().changeUserAuthorizations("root",defaultVis);
         TestRunner runner = getTestRunner(tableName, DEFAULT_COLUMN_FAMILY);
-        runner.setProperty(ScanAccumulo.START_KEY, "");
-        runner.setProperty(ScanAccumulo.AUTHORIZATIONS, "");
-        runner.setProperty(ScanAccumulo.END_KEY, "");
+        runner.setProperty(ScanAccumulo.START_KEY, row);
+        if (!cf.isEmpty())
+        runner.setProperty(ScanAccumulo.COLUMNFAMILY, cf);
+        if (!endcf.isEmpty())
+        runner.setProperty(ScanAccumulo.COLUMNFAMILY_END, endcf);
+        runner.setProperty(ScanAccumulo.AUTHORIZATIONS, auths);
+        runner.setProperty(ScanAccumulo.END_KEY, endrow);
 
         AccumuloService client = MockAccumuloService.getService(runner,accumulo.getZooKeepers(),accumulo.getInstanceName(),"root","password");
-        Set<Key> expectedKeys = generateTestData(runner,tableName,valueincq,delim, auths);
-        runner.enqueue("Test".getBytes("UTF-8")); // This is to coax the processor into reading the data in the reader.l
+        Set<Key> expectedKeys = generateTestData(runner,row,tableName,valueincq,delim, auths);
+        if (sendFlowFile) {
+            runner.enqueue("Test".getBytes("UTF-8")); // This is to coax the processor into reading the data in the reader.l
+        }
         runner.run();
 
 
         List<MockFlowFile> results = runner.getFlowFilesForRelationship(ScanAccumulo.REL_SUCCESS);
         for(MockFlowFile ff : results){
             String attr = ff.getAttribute("record.count");
-            Assert.assertEquals(5,Integer.valueOf(attr).intValue());
+            Assert.assertEquals(expected,Integer.valueOf(attr).intValue());
         }
         Assert.assertTrue("Wrong count, received " + results.size(), results.size() == 1);
     }
@@ -173,8 +179,38 @@ public class TestScanAccumulo {
 
 
     @Test
-    public void testPullData() throws Exception {
-        basicPutSetup(false);
+    public void testPullDatWithFlowFile() throws Exception {
+        basicPutSetup(true,false);
+    }
+
+    @Test
+    public void testPullDatWithOutFlowFile() throws Exception {
+        basicPutSetup(false,false);
+    }
+
+    @Test
+    public void testSameRowCf() throws Exception {
+        basicPutSetup(false,"2019","2019","family1","family2",false,null,"",null,false,1);
+    }
+
+    @Test
+    public void testSameRowCfValueInCq() throws Exception {
+        basicPutSetup(false,"2019","2019","family1","family2",true,null,"",null,false,5);
+    }
+
+    @Test(expected = AssertionError.class)
+    public void testSameRowCfValueInCqErrorCfEnd() throws Exception {
+        basicPutSetup(false,"2019","2019","family1","",true,null,"",null,false,5);
+    }
+
+    @Test(expected = AssertionError.class)
+    public void testSameRowCfValueInCqErrorCf() throws Exception {
+        basicPutSetup(false,"2019","2019","","family2",true,null,"",null,false,5);
+    }
+
+    @Test(expected = AssertionError.class)
+    public void testSameRowCfValueInCqErrorNotLess() throws Exception {
+        basicPutSetup(false,"2019","2019","family1","family1",true,null,"",null,false,5);
     }
 
 
