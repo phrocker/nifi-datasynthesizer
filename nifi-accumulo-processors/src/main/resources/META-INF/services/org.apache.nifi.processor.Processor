@@ -14,3 +14,4 @@
 # limitations under the License.
 org.poma.accumulo.nifi.processors.PutAccumuloRecord
 org.poma.accumulo.nifi.processors.ScanAccumulo
+org.poma.accumulo.nifi.processors.RecordIngest

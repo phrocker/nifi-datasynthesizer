@@ -15,10 +15,7 @@ import datawave.ingest.data.config.DataTypeHelperImpl;
 import datawave.ingest.data.config.DataTypeOverrideHelper;
 import datawave.ingest.mapreduce.EventMapper;
 import datawave.ingest.test.StandaloneStatusReporter;
-import org.apache.accumulo.core.client.AccumuloException;
-import org.apache.accumulo.core.client.AccumuloSecurityException;
-import org.apache.accumulo.core.client.BatchWriterConfig;
-import org.apache.accumulo.core.client.TableExistsException;
+import org.apache.accumulo.core.client.*;
 import org.apache.accumulo.core.client.admin.TableOperations;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.hadoop.conf.Configuration;
@@ -27,6 +24,10 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.lib.map.WrappedMapper;
 import org.apache.hadoop.mapreduce.task.MapContextImpl;
+import org.apache.nifi.annotation.behavior.EventDriven;
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.SupportsBatching;
+import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
@@ -51,6 +52,11 @@ import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.stream.Collectors;
 
+
+@EventDriven
+@SupportsBatching
+@InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
+@Tags({"hadoop", "accumulo", "put", "record"})
 public class RecordIngest extends DatawaveAccumuloIngest {
 
     protected static final PropertyDescriptor RECORD_READER_FACTORY = new PropertyDescriptor.Builder()
@@ -323,12 +329,10 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
                     DatawaveRecordReader.incrementAdder();
 
-                    processSession.transfer(flowFile,REL_SUCCESS);
 
-                    tableWriter.flush();
-
-                    return;
             }
+
+
 
 
 
@@ -336,7 +340,14 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             ex.printStackTrace();
             getLogger().error("Failed to put records to Accumulo.", ex);
         }
-        processSession.transfer(flowFile,REL_FAILURE);
+        processSession.transfer(flowFile,REL_SUCCESS);
+
+        try {
+            tableWriter.flush();
+        } catch (MutationsRejectedException e) {
+            e.printStackTrace();
+        }
+
     }
 }
 
