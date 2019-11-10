@@ -16,7 +16,7 @@ public class DatawaveRecordReader extends org.apache.hadoop.mapreduce.RecordRead
     private Queue<RawRecordContainer> containerQueue;
 
     public DatawaveRecordReader(Queue<RawRecordContainer> queue){
-        queue = containerQueue;
+        containerQueue = queue;
 
     }
 

@@ -27,7 +27,6 @@ public abstract class BaseAccumuloProcessor extends AbstractProcessor {
             .name("Table Name")
             .description("The name of the Accumulo Table into which data will be placed")
             .required(true)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 

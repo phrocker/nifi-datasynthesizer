@@ -42,21 +42,21 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
     protected static final PropertyDescriptor INGEST_HELPER = new PropertyDescriptor.Builder()
             .name("Ingest Helper")
             .description("Ingest Helper class")
-            .required(true)
+            .required(false)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
     protected static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
             .name("Record Reader")
             .description("Hadoop Record reader class")
-            .required(true)
+            .required(false)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
     protected static final PropertyDescriptor DATA_HANDLER_CLASS = new PropertyDescriptor.Builder()
             .name("Handler Class")
             .description("Datawave handler class")
-            .required(true)
+            .required(false)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 

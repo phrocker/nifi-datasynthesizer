@@ -1,8 +1,11 @@
 package org.poma.accumulo.nifi.processors;
 
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
 import datawave.data.hash.UID;
 import datawave.data.hash.UIDBuilder;
 import datawave.ingest.config.RawRecordContainerImpl;
+import datawave.ingest.csv.mr.handler.ContentCSVColumnBasedHandler;
 import datawave.ingest.data.RawRecordContainer;
 import datawave.ingest.data.Type;
 import datawave.ingest.data.TypeRegistry;
@@ -139,37 +142,41 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         writerConfig.setMaxWriteThreads(context.getProperty(THREADS).asInteger());
         writerConfig.setMaxMemory(maxBytes.longValue());
         tableWriter = connector.createMultiTableBatchWriter(writerConfig);
+        final String table = context.getProperty(TABLE_NAME).getValue();
 
-        if (context.getProperty(CREATE_TABLE).asBoolean() && !context.getProperty(TABLE_NAME).isExpressionLanguagePresent()) {
-            final String table = context.getProperty(TABLE_NAME).getValue();
-            final TableOperations tableOps = this.connector.tableOperations();
-            if (!tableOps.exists(table)) {
-                getLogger().info("Creating " + table + " table.");
-                try {
-                    tableOps.create(table);
-                } catch (TableExistsException te) {
-                    // can safely ignore
-                } catch (AccumuloSecurityException | AccumuloException e) {
-                    getLogger().info("Accumulo or Security error creating. Continuing... " + table + ". ", e);
-                }
-            }
-        }
 
         conf = new Configuration();
         final Map<String,String> properties = context.getAllProperties();
         properties.forEach( (x,y) ->{
-            conf.set(x,y);
+            if (null != y)
+                conf.set(x,y);
         });
+        conf.set("data.name",dataTypeName);
+        conf.set("num.shards","1");
+        conf.set("shard.table.name",table);
+        conf.set("shard.global.index.table.name","shardIndex");
+        conf.set("shard.global.rindex.table.name","shardReverse");
 
-        dataTypeHelper.setup(conf);
+        conf.set("all.ingest.policy.enforcer.class","datawave.policy.ExampleIngestPolicyEnforcer");
+        conf.set("all.date.index.type.to.field.map","LOADED=LOAD_DATE");
+        //@TODO Remove these
+        conf.set("csv.data.header.enabled","false");
+        conf.set("csv.data.separator",",");
+        conf.set("csv.data.process.extra.fields","true");
+
+
+        type = new Type(dataTypeName, IngestHelper.class, DatawaveRecordReader.class, new String[] {ContentCSVColumnBasedHandler.class.getName()}, 10, null);
+
+        TypeRegistry registry = TypeRegistry.getInstance(conf);
+        registry.put(dataTypeName, type);
 
         overrideHelper = new DataTypeOverrideHelper();
         overrideHelper.setup(conf);
 
-        type = new Type(dataTypeName, IngestHelper.class, DatawaveRecordReader.class, new String[] {RecordIngest.class.getName()}, 10, null);
 
-        TypeRegistry registry = TypeRegistry.getInstance(conf);
-        registry.put(dataTypeName, type);
+
+        dataTypeHelper.setup(conf);
+
     }
 
 
@@ -217,7 +224,9 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 event.setRawFileName(flowFile.getAttribute("filename"));
                 event.setRawFileTimestamp(flowFile.getEntryDate());
                 event.setDate(flowFile.getEntryDate());
+                ((RawRecordContainerImpl) event).setVisibility("");
 
+                Multimap<String,String> map = HashMultimap.create();
                 for (String name : reader.getSchema().getFieldNames().stream().filter(p -> !fieldsToSkip.contains(p)).collect(Collectors.toList())) {
                     String recordValue = record.getAsString(name);
                     checkField(name, recordValue, event);
@@ -227,7 +236,10 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                     } else {
                         event.generateId(null);
                     }
+                    map.put(name,recordValue);
                 }
+
+                IngestHelper.setMap(map);
 
 
 
@@ -288,6 +300,11 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
                     DatawaveRecordReader.incrementAdder();
 
+                    processSession.transfer(flowFile,REL_SUCCESS);
+
+                    tableWriter.flush();
+
+                    return;
             }
 
 
@@ -296,7 +313,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             ex.printStackTrace();
             getLogger().error("Failed to put records to Accumulo.", ex);
         }
-
+        processSession.transfer(flowFile,REL_FAILURE);
     }
 }
 
