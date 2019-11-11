@@ -28,8 +28,6 @@ public class AccumuloRecordWriter extends RecordWriter<BulkIngestKey, Value> {
 
     @Override
     public void write(BulkIngestKey key, Value value) throws IOException, InterruptedException {
-        System.out.println("Write " + key + " " + value);
-
         if (null != writer) {
             try {
                 final Mutation m = getMutation(key.getKey(),value);

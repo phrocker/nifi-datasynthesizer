@@ -48,8 +48,23 @@ import org.poma.accumulo.nifi.data.RecordContainer;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 
@@ -175,16 +190,16 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         conf.set("data.name",dataTypeName);
         conf.set("num.shards",shards.toString());
         conf.set("shard.table.name",table);
-        conf.set("csv.data.default.type.class", LcNoDiacriticsType.class.getCanonicalName());
+        conf.set(dataTypeName + ".data.default.type.class", LcNoDiacriticsType.class.getCanonicalName());
         conf.set("shard.global.index.table.name",indexTable);
         conf.set("shard.global.rindex.table.name",reverseIndexTable);
 
         conf.set("all.ingest.policy.enforcer.class","datawave.policy.ExampleIngestPolicyEnforcer");
         conf.set("all.date.index.type.to.field.map","LOADED=LOAD_DATE");
         //@TODO Remove these
-        conf.set("csv.data.header.enabled","false");
-        conf.set("csv.data.separator",",");
-        conf.set("csv.data.process.extra.fields","true");
+        conf.set(dataTypeName + ".data.header.enabled","false");
+        conf.set(dataTypeName + ".data.separator",",");
+        conf.set(dataTypeName + ".data.process.extra.fields","true");
 
 
         type = new Type(dataTypeName, IngestHelper.class, DatawaveRecordReader.class, new String[] {ContentRecordHandler.class.getName()}, 10, null);
@@ -232,7 +247,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
         AccumuloRecordWriter recordWriter = new AccumuloRecordWriter(tableWriter);
 
-        final RecordContainer event = new RecordContainer();
+
 
         TaskAttemptID id = new TaskAttemptID("testJob", 0, TaskType.MAP, 0, 0);
 
@@ -242,14 +257,90 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
 
 
+            OutputCommitter oc = new OutputCommitter() {
+                @Override
+                public void setupJob(JobContext jobContext) throws IOException {
+
+                }
+
+                @Override
+                public void setupTask(TaskAttemptContext taskAttemptContext) throws IOException {
+
+                }
+
+                @Override
+                public boolean needsTaskCommit(TaskAttemptContext taskAttemptContext) throws IOException {
+                    return false;
+                }
+
+                @Override
+                public void commitTask(TaskAttemptContext taskAttemptContext) throws IOException {
+
+                }
+
+                @Override
+                public void abortTask(TaskAttemptContext taskAttemptContext) throws IOException {
+
+                }
+            };
+
+            BlockingQueue<RawRecordContainer> queue = new ArrayBlockingQueue<>(100);
+
+            org.apache.hadoop.mapreduce.RecordReader rr = new DatawaveRecordReader(queue);
+
+
+
+            StandaloneStatusReporter sr = new StandaloneStatusReporter();
+            EventMapper<LongWritable,RawRecordContainer,Text,Mutation> mapper = new EventMapper<>();
+            MapContext<LongWritable,RawRecordContainer,Text,Mutation> mapContext = new MapContextImpl<>(conf, id, rr, recordWriter, oc, sr, new InputSplit() {
+                @Override
+                public long getLength() throws IOException, InterruptedException {
+                    return 1;
+                }
+
+                @Override
+                public String[] getLocations() throws IOException, InterruptedException {
+                    return new String[0];
+                }
+            });
+
+            Mapper<LongWritable,RawRecordContainer,Text,Mutation>.Context con = new WrappedMapper<LongWritable,RawRecordContainer,Text,Mutation>()
+                    .getMapContext(mapContext);
+
+            final AtomicBoolean running = new AtomicBoolean(true);
+
+            Runnable task = () -> {
+                try {
+                    while(running.get() || queue.size() > 0) {
+                        System.out.println("running " + queue.size());
+                        mapper.run(con);
+                        mapper.cleanup(con);
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+
+                DatawaveRecordReader.incrementAdder();
+            };
+
+            ExecutorService service = Executors.newSingleThreadExecutor();
+
+            service.submit(task);
+
             while ((record = reader.nextRecord()) != null) {
 
-                event.clear();
+                final RecordContainer event = new RecordContainer();
                 event.setDataType(dataTypeHelper.getType());
                 event.setRawFileName(flowFile.getAttribute("filename"));
                 event.setRawFileTimestamp(flowFile.getEntryDate());
                 event.setDate(flowFile.getEntryDate());
                 event.setVisibility("");
+                eventId = UUID.randomUUID().toString();
+
+                event.setId(DataTypeOverrideHelper.getUid(eventId, event.getTimeForUID(), uidBuilder));
 
                 ArrayList<String> indexedFields = new ArrayList<>();
                 Splitter.on(",").split(indexFields).forEach(indexedFields::add);
@@ -259,78 +350,23 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 for (String name : reader.getSchema().getFieldNames().stream().filter(p -> !fieldsToSkip.contains(p)).collect(Collectors.toList())) {
                     String recordValue = record.getAsString(name);
                     checkField(name, recordValue, event);
-                    final UID newUID = uidOverride(event);
-                    if (newUID != null) {
-                        event.setId(newUID);
-                    } else {
-                        event.generateId(null);
-                    }
                     map.put(name,recordValue);
                 }
 
                 event.setMap(map);
 
-
-
-                    OutputCommitter oc = new OutputCommitter() {
-                        @Override
-                        public void setupJob(JobContext jobContext) throws IOException {
-
-                        }
-
-                        @Override
-                        public void setupTask(TaskAttemptContext taskAttemptContext) throws IOException {
-
-                        }
-
-                        @Override
-                        public boolean needsTaskCommit(TaskAttemptContext taskAttemptContext) throws IOException {
-                            return false;
-                        }
-
-                        @Override
-                        public void commitTask(TaskAttemptContext taskAttemptContext) throws IOException {
-
-                        }
-
-                        @Override
-                        public void abortTask(TaskAttemptContext taskAttemptContext) throws IOException {
-
-                        }
-                    };
-
-                    Queue<RawRecordContainer> queue = new ArrayBlockingQueue<RawRecordContainer>(2);
-
-                    queue.offer(event);
-
-                    org.apache.hadoop.mapreduce.RecordReader rr = new DatawaveRecordReader(queue);
-
-
-                    StandaloneStatusReporter sr = new StandaloneStatusReporter();
-                    EventMapper<LongWritable,RawRecordContainer,Text,Mutation> mapper = new EventMapper<>();
-                    MapContext<LongWritable,RawRecordContainer,Text,Mutation> mapContext = new MapContextImpl<>(conf, id, rr, recordWriter, oc, sr, new InputSplit() {
-                        @Override
-                        public long getLength() throws IOException, InterruptedException {
-                            return 1;
-                        }
-
-                        @Override
-                        public String[] getLocations() throws IOException, InterruptedException {
-                            return new String[0];
-                        }
-                    });
-
-                    Mapper<LongWritable,RawRecordContainer,Text,Mutation>.Context con = new WrappedMapper<LongWritable,RawRecordContainer,Text,Mutation>()
-                            .getMapContext(mapContext);
-
-
-                    mapper.run(con);
-                    mapper.cleanup(con);
-
-                    DatawaveRecordReader.incrementAdder();
-
-
+                queue.offer(event, 30, TimeUnit.SECONDS);
             }
+
+            running.set(false);
+
+
+
+
+
+            service.shutdown();
+            service.awaitTermination(60, TimeUnit.SECONDS);
+            rr.close();
 
 
 

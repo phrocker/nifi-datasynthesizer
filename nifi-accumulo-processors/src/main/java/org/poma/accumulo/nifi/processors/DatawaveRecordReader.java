@@ -6,18 +6,21 @@ import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 
 import java.io.IOException;
-import java.util.Queue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
 
-public class
-DatawaveRecordReader extends org.apache.hadoop.mapreduce.RecordReader<LongWritable, RawRecordContainer> {
+public class DatawaveRecordReader extends org.apache.hadoop.mapreduce.RecordReader<LongWritable, RawRecordContainer> {
 
     private static LongAdder adder = new LongAdder();
 
-    private Queue<RawRecordContainer> containerQueue;
+    private BlockingQueue<RawRecordContainer> containerQueue;
 
-    public DatawaveRecordReader(Queue<RawRecordContainer> queue){
+    private AtomicBoolean finished = new AtomicBoolean();
+
+    public DatawaveRecordReader(BlockingQueue<RawRecordContainer> queue){
         containerQueue = queue;
+        finished.set(false);
 
     }
 
@@ -30,33 +33,39 @@ DatawaveRecordReader extends org.apache.hadoop.mapreduce.RecordReader<LongWritab
     }
 
 
-@Override
-public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
+    @Override
+    public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
 
-        }
+            }
 
-@Override
-public boolean nextKeyValue() throws IOException, InterruptedException {
-        return containerQueue.peek()!=null;
-        }
+    @Override
+    public boolean nextKeyValue() throws IOException, InterruptedException {
+            // while not finished wait for data to become available;
+            while(!finished.get()) {
+                if (!containerQueue.isEmpty()) {
+                    return true;
+                }
+            }
+             return !containerQueue.isEmpty();
+            }
 
-@Override
-public LongWritable getCurrentKey() throws IOException, InterruptedException {
-        return new LongWritable(adder.longValue());
-        }
+    @Override
+    public LongWritable getCurrentKey() throws IOException, InterruptedException {
+            return new LongWritable(adder.longValue());
+            }
 
-@Override
-public RawRecordContainer getCurrentValue() throws IOException, InterruptedException {
-        return containerQueue.remove();
-        }
+    @Override
+    public RawRecordContainer getCurrentValue() throws IOException, InterruptedException {
+            return containerQueue.take();
+            }
 
-@Override
-public float getProgress() throws IOException, InterruptedException {
-        return 100.0F;
-        }
+    @Override
+    public float getProgress() throws IOException, InterruptedException {
+            return 100.0F;
+            }
 
-@Override
-public void close() throws IOException {
-
-        }
+    @Override
+    public void close() throws IOException {
+                finished.set(true);
+            }
     }
