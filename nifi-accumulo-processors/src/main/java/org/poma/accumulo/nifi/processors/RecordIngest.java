@@ -359,14 +359,14 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             }
 
             running.set(false);
-
+            rr.close();
 
 
 
 
             service.shutdown();
             service.awaitTermination(60, TimeUnit.SECONDS);
-            rr.close();
+
 
 
 
