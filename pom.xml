@@ -4,17 +4,17 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-nar-bundles</artifactId>
-        <version>1.9.0</version>
+        <version>1.10.0</version>
     </parent>
 
 
     <properties>
-        <nifi.version>1.9.0</nifi.version>
-        <accumulo.version>1.9.3</accumulo.version>
+        <nifi.version>1.10.0</nifi.version>
+        <accumulo.version>2.0.0</accumulo.version>
     </properties>
 
 
-    <groupId>org.poma.accumulo</groupId>
+    <groupId>org.apache.nifi.accumulo</groupId>
     <artifactId>nifi-accumulo</artifactId>
     <version>1.0</version>
     <packaging>pom</packaging>

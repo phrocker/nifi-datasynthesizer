@@ -17,7 +17,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-	    <groupId>org.poma.accumulo</groupId>
+	    <groupId>org.apache.nifi.accumulo</groupId>
         <artifactId>nifi-accumulo</artifactId>
         <version>1.0</version>
     </parent>
@@ -27,7 +27,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.poma.accumulo</groupId>
+            <groupId>org.apache.nifi.accumulo</groupId>
             <artifactId>nifi-accumulo-services-api</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
@@ -92,7 +92,7 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.poma.accumulo</groupId>
+            <groupId>org.apache.nifi.accumulo</groupId>
             <artifactId>nifi-accumulo-services</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>

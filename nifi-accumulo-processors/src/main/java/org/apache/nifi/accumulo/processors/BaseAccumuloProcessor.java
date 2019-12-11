@@ -1,10 +1,10 @@
-package org.poma.accumulo.nifi.processors;
+package org.apache.nifi.accumulo.processors;
 
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.poma.accumulo.nifi.controllerservices.BaseAccumuloService;
+import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
 
 import java.util.ArrayList;
 import java.util.List;

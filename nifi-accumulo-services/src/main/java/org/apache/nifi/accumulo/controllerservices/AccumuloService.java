@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.poma.accumulo.nifi.controllerservices;
+package org.apache.nifi.accumulo.controllerservices;
 
 import org.apache.accumulo.core.client.*;
 import org.apache.accumulo.core.client.security.tokens.AuthenticationToken;
@@ -54,7 +54,6 @@ public class AccumuloService extends AbstractControllerService implements BaseAc
 
     private enum AuthenticationType{
         PASSWORD,
-        KERBEROS,
         NONE
     }
 
@@ -97,9 +96,7 @@ public class AccumuloService extends AbstractControllerService implements BaseAc
             .build();
 
 
-    private Connector connector;
-    private ZooKeeperInstance instance;
-    private ClientConfiguration clientConfiguration;
+    AccumuloClient client;
 
     /**
      * properties
@@ -175,7 +172,7 @@ public class AccumuloService extends AbstractControllerService implements BaseAc
             throw new InitializationException("Instance name and Zookeeper Quorum must be specified");
         }
 
-        this.clientConfiguration = ClientConfiguration.create();
+
 
         final String instanceName = context.getProperty(INSTANCE_NAME).evaluateAttributeExpressions().getValue();
         final String zookeepers = context.getProperty(ZOOKEEPER_QUORUM).evaluateAttributeExpressions().getValue();
@@ -183,31 +180,26 @@ public class AccumuloService extends AbstractControllerService implements BaseAc
 
         final AuthenticationType type = AuthenticationType.valueOf( context.getProperty(AUTHENTICATION_TYPE).getValue() );
 
+
+
         final AuthenticationToken token = getToken(type,context);
+
+        this.client = Accumulo.newClient().to(instanceName,zookeepers).as(accumuloUser,token).build();
 
         if (null == token){
             throw new InitializationException("Feature not implemented");
         }
 
-        this.clientConfiguration.withInstance(instanceName).withZkHosts(zookeepers);
-        this.instance = new ZooKeeperInstance(clientConfiguration);
-
-
-        try {
-            this.connector = this.instance.getConnector(accumuloUser,token);
-        } catch (AccumuloException | AccumuloSecurityException e) {
-            throw new InitializationException(e);
-        }
     }
 
     @Override
-    public Connector getConnector(){
-        return connector;
+    public AccumuloClient getClient(){
+        return client;
     }
 
     @OnDisabled
     public void shutdown() {
-
+        client.close();
     }
 
 }

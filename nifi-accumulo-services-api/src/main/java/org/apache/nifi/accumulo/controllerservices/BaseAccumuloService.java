@@ -1,9 +1,8 @@
-package org.poma.accumulo.nifi.controllerservices;
+package org.apache.nifi.accumulo.controllerservices;
 
-import org.apache.accumulo.core.client.Connector;
+import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
-import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.controller.ControllerService;
 
 @Tags({"accumulo", "client", "service"})
@@ -11,6 +10,6 @@ import org.apache.nifi.controller.ControllerService;
 public interface BaseAccumuloService extends ControllerService {
 
 
-    Connector getConnector();
+    AccumuloClient getClient();
 
 }

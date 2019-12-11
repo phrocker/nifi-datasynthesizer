@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.poma.accumulo.nifi.processors;
+package org.apache.nifi.accumulo.processors;
 
 
 import org.apache.accumulo.core.client.*;
@@ -28,7 +28,6 @@ import org.apache.nifi.annotation.behavior.*;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnDisabled;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
-import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.components.*;
 import org.apache.nifi.expression.ExpressionLanguageScope;
@@ -46,8 +45,8 @@ import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.util.StringUtils;
-import org.poma.accumulo.nifi.controllerservices.BaseAccumuloService;
-import org.poma.accumulo.nifi.data.AccumuloRecordConfiguration;
+import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
+import org.apache.nifi.accumulo.data.AccumuloRecordConfiguration;
 
 import javax.xml.bind.DatatypeConverter;
 import java.io.InputStream;
@@ -212,7 +211,7 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
     /**
      * Connector that we need to persist while we are operational.
      */
-    protected Connector connector;
+    protected AccumuloClient client;
 
     /**
      * Table writer that will close when we shutdown or upon error.
@@ -252,18 +251,18 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
     public void onScheduled(final ProcessContext context) {
         accumuloConnectorService = context.getProperty(ACCUMULO_CONNECTOR_SERVICE).asControllerService(BaseAccumuloService.class);
         final Double maxBytes = context.getProperty(MEMORY_SIZE).asDataSize(DataUnit.B);
-        this.connector = accumuloConnectorService.getConnector();
+        this.client = accumuloConnectorService.getClient();
         BatchWriterConfig writerConfig = new BatchWriterConfig();
         writerConfig.setMaxWriteThreads(context.getProperty(THREADS).asInteger());
         writerConfig.setMaxMemory(maxBytes.longValue());
-        tableWriter = connector.createMultiTableBatchWriter(writerConfig);
+        tableWriter = client.createMultiTableBatchWriter(writerConfig);
         flushOnEveryFlow = context.getProperty(FLUSH_ON_FLOWFILE).asBoolean();
         if (!flushOnEveryFlow){
             writerConfig.setMaxLatency(60, TimeUnit.SECONDS);
         }
         if (context.getProperty(CREATE_TABLE).asBoolean() && !context.getProperty(TABLE_NAME).isExpressionLanguagePresent()) {
             final String table = context.getProperty(TABLE_NAME).getValue();
-              final TableOperations tableOps = this.connector.tableOperations();
+              final TableOperations tableOps = this.client.tableOperations();
               if (!tableOps.exists(table)) {
                   getLogger().info("Creating " + table + " table.");
                   try {
@@ -345,7 +344,6 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
             recordPath = recordPathCache.getCompiled(recordPathText);
         }
 
-        final long start = System.nanoTime();
         boolean failed = false;
         Mutation prevMutation=null;
         try (final InputStream in = processSession.read(flowFile);

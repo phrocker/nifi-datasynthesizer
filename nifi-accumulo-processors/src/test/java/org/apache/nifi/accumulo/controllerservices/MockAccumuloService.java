@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.poma.accumulo.nifi.controllerservices;
+package org.apache.nifi.accumulo.controllerservices;
 
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunner;

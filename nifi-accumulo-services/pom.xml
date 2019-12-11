@@ -17,7 +17,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-	    <groupId>org.poma.accumulo</groupId>
+	    <groupId>org.apache.nifi.accumulo</groupId>
         <artifactId>nifi-accumulo</artifactId>
         <version>1.0</version>
     </parent>
@@ -62,7 +62,7 @@
             <version>${nifi.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.poma.accumulo</groupId>
+            <groupId>org.apache.nifi.accumulo</groupId>
             <artifactId>nifi-accumulo-services-api</artifactId>
             <version>${project.version}</version>
         </dependency>

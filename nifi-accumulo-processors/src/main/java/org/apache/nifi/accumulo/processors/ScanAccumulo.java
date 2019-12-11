@@ -15,8 +15,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.poma.accumulo.nifi.processors;
+package org.apache.nifi.accumulo.processors;
 
+import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.client.BatchScanner;
 import org.apache.accumulo.core.client.Connector;
 import org.apache.accumulo.core.data.Key;
@@ -24,6 +25,7 @@ import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.hadoop.io.Text;
+import org.apache.nifi.accumulo.data.KeySchema;
 import org.apache.nifi.annotation.behavior.*;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
@@ -47,9 +49,7 @@ import org.apache.nifi.serialization.WriteResult;
 import org.apache.nifi.serialization.record.MapRecord;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.util.StringUtils;
-import org.apache.nifi.util.Tuple;
-import org.poma.accumulo.nifi.controllerservices.BaseAccumuloService;
-import org.poma.accumulo.nifi.data.KeySchema;
+import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -152,7 +152,7 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
     /**
      * Connector that we need to persist while we are operational.
      */
-    protected Connector connector;
+    protected AccumuloClient client;
 
 
     @Override
@@ -176,7 +176,7 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
         accumuloConnectorService = context.getProperty(ACCUMULO_CONNECTOR_SERVICE).asControllerService(BaseAccumuloService.class);
-        this.connector = accumuloConnectorService.getConnector();
+        this.client = accumuloConnectorService.getClient();
     }
 
     private Authorizations stringToAuth(final String authorizations){
@@ -185,17 +185,20 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
         else
             return new Authorizations();
     }
-    protected long scanWithFlowFile(final RecordSetWriterFactory writerFactory, final ProcessContext processContext, final ProcessSession processSession, final FlowFile flowFile){
-        final Map<String, String> originalAttributes = flowFile.getAttributes();
-        final String table = processContext.getProperty(TABLE_NAME).evaluateAttributeExpressions(flowFile).getValue();
-        final String startKey = processContext.getProperty(START_KEY).evaluateAttributeExpressions(flowFile).getValue();
+
+
+    protected long scanAccumulo(final RecordSetWriterFactory writerFactory, final ProcessContext processContext, final ProcessSession processSession, final Optional<FlowFile> incomingFlowFile){
+
+        final Map<String, String> flowAttributes = incomingFlowFile.isPresent() ?  incomingFlowFile.get().getAttributes() : new HashMap<>();
+        final String table = processContext.getProperty(TABLE_NAME).evaluateAttributeExpressions(flowAttributes).getValue();
+        final String startKey = processContext.getProperty(START_KEY).evaluateAttributeExpressions(flowAttributes).getValue();
         final boolean startKeyInclusive = processContext.getProperty(START_KEY_INCLUSIVE).asBoolean();
         final boolean endKeyInclusive = processContext.getProperty(END_KEY_INCLUSIVE).asBoolean();
-        final String endKey = processContext.getProperty(END_KEY).evaluateAttributeExpressions(flowFile).getValue();
-        final String authorizations = processContext.getProperty(AUTHORIZATIONS).evaluateAttributeExpressions(flowFile).getValue();
+        final String endKey = processContext.getProperty(END_KEY).evaluateAttributeExpressions(flowAttributes).getValue();
+        final String authorizations = processContext.getProperty(AUTHORIZATIONS).evaluateAttributeExpressions(flowAttributes).getValue();
         final int threads = processContext.getProperty(THREADS).asInteger();
-        final String startKeyCf = processContext.getProperty(COLUMNFAMILY).evaluateAttributeExpressions(flowFile).getValue();
-        final String endKeyCf = processContext.getProperty(COLUMNFAMILY_END).evaluateAttributeExpressions(flowFile).getValue();
+        final String startKeyCf = processContext.getProperty(COLUMNFAMILY).evaluateAttributeExpressions(flowAttributes).getValue();
+        final String endKeyCf = processContext.getProperty(COLUMNFAMILY_END).evaluateAttributeExpressions(flowAttributes).getValue();
 
         final Authorizations auths = stringToAuth(authorizations);
 
@@ -203,32 +206,37 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
 
         final Range lookupRange = buildRange(startKey,startKeyCf,startKeyInclusive,endKey,endKeyCf,endKeyInclusive);
 
-        try (BatchScanner scanner = connector.createBatchScanner(table,auths,threads)) {
+        boolean cloneFlowFile = incomingFlowFile.isPresent();
+
+        try (BatchScanner scanner = client.createBatchScanner(table,auths,threads)) {
             if (!StringUtils.isBlank(startKeyCf) &&  StringUtils.isBlank(endKeyCf))
                 scanner.fetchColumnFamily(new Text(startKeyCf));
             scanner.setRanges(Collections.singleton(lookupRange));
 
             final Iterator<Map.Entry<Key,Value>> kvIter = scanner.iterator();
             if (!kvIter.hasNext()){
+                /**
+                 * Create a flow file with a record count of zero.
+                 */
                 final Map<String, String> attributes = new HashMap<>();
                 attributes.put("record.count", String.valueOf(0));
-                processSession.putAllAttributes(flowFile,attributes);
-                processSession.transfer(flowFile, REL_SUCCESS);
+                final FlowFile newFlow = processSession.create();
+                processSession.putAllAttributes(newFlow,attributes);
+                processSession.transfer(newFlow, REL_SUCCESS);
                 return 0;
             } else{
 
                 while (kvIter.hasNext()) {
-                    // todo: investigate why we are cloning and then removing.
-                    FlowFile clonedFlowFile = processSession.clone(flowFile);
+                    FlowFile iterationFlowFile = cloneFlowFile ? processSession.clone(incomingFlowFile.get()) : processSession.create();
 
                     final int keysPerFlowFile = 1000;
                     final Map<String, String> attributes = new HashMap<>();
-                    clonedFlowFile = processSession.write(clonedFlowFile, new StreamCallback() {
+                    iterationFlowFile = processSession.write(iterationFlowFile, new StreamCallback() {
                         @Override
                         public void process(final InputStream in, final OutputStream out) throws IOException {
 
                             try{
-                                final RecordSchema writeSchema = writerFactory.getSchema(originalAttributes, new KeySchema());
+                                final RecordSchema writeSchema = writerFactory.getSchema(flowAttributes, new KeySchema());
                                 try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out)) {
 
                                     int i = 0;
@@ -259,129 +267,40 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
                                     attributes.putAll(writeResult.getAttributes());
                                 }
                             } catch (SchemaNotFoundException e) {
-                                getLogger().error("Failed to process {}; will route to failure", new Object[] {flowFile, e});
+                                getLogger().error("Failed to process {}; will route to failure", new Object[] {
+                                        incomingFlowFile.isPresent() ? incomingFlowFile.get() : "No incoming flow file", e});
+
                                 throw new IOException(e);
                             }
                         }
 
                     });
-                    processSession.putAllAttributes(clonedFlowFile,attributes);
-                    processSession.transfer(clonedFlowFile, REL_SUCCESS);
+                    processSession.putAllAttributes(iterationFlowFile,attributes);
+                    processSession.transfer(iterationFlowFile, REL_SUCCESS);
                 }
             }
         } catch (final Exception e) {
-            getLogger().error("Failed to process {}; will route to failure", new Object[] {flowFile, e});
-            processSession.transfer(flowFile, REL_FAILURE);
+            getLogger().error("Failed to process {}; will route to failure", new Object[] {incomingFlowFile.isPresent() ? incomingFlowFile.get() : "No incoming flow file", e});
+            if (cloneFlowFile) {
+                processSession.transfer(incomingFlowFile.get(), REL_FAILURE);
+            }
             return 0;
         }
 
-        processSession.remove(flowFile);
+        if (cloneFlowFile) {
+            processSession.remove(incomingFlowFile.get());
+        }
 
-        getLogger().info("Successfully converted {} records for {}", new Object[] {recordCounter.longValue(), flowFile});
+        getLogger().info("Successfully converted {} records for {}", new Object[] {recordCounter.longValue(), incomingFlowFile.toString()});
 
         return recordCounter.longValue();
     }
+
 
     Range buildRange(final String startRow, final String startKeyCf,boolean startKeyInclusive, final String endRow, final String endKeyCf,boolean endKeyInclusive){
         Key start = StringUtils.isBlank(startRow) ? null : StringUtils.isBlank(startKeyCf) ? new Key(startRow) : new Key(startRow,startKeyCf);
         Key end = StringUtils.isBlank(endRow) ? null : StringUtils.isBlank(endKeyCf) ? new Key(endRow) : new Key(endRow,endKeyCf);
         return new Range(start,startKeyInclusive,end,endKeyInclusive);
-    }
-
-    protected long  scanWithProperties(final RecordSetWriterFactory writerFactory,final ProcessContext processContext, final ProcessSession processSession){
-        Map<String,String> stubbedAttributes = new HashMap<>();
-        final String table = processContext.getProperty(TABLE_NAME).evaluateAttributeExpressions(stubbedAttributes).getValue();
-        final String startKey = processContext.getProperty(START_KEY).evaluateAttributeExpressions(stubbedAttributes).getValue();
-        final String startKeyCf = processContext.getProperty(COLUMNFAMILY).evaluateAttributeExpressions(stubbedAttributes).getValue();
-        final String endKeyCf = processContext.getProperty(COLUMNFAMILY_END).evaluateAttributeExpressions(stubbedAttributes).getValue();
-        final String endKey = processContext.getProperty(END_KEY).evaluateAttributeExpressions(stubbedAttributes).getValue();
-        final String authorizations = processContext.getProperty(AUTHORIZATIONS).evaluateAttributeExpressions(stubbedAttributes).getValue();
-        final boolean startKeyInclusive = processContext.getProperty(START_KEY_INCLUSIVE).asBoolean();
-        final boolean endKeyInclusive = processContext.getProperty(END_KEY_INCLUSIVE).asBoolean();
-        final int threads = processContext.getProperty(THREADS).asInteger();
-
-        final Authorizations auths = stringToAuth(authorizations);
-
-        final LongAdder recordCounter = new LongAdder();
-
-        final Range lookupRange = buildRange(startKey,startKeyCf,startKeyInclusive,endKey,endKeyCf,endKeyInclusive);
-
-        try (BatchScanner scanner = connector.createBatchScanner(table,auths,threads)) {
-            if (!StringUtils.isBlank(startKeyCf) &&  StringUtils.isBlank(endKeyCf))
-                scanner.fetchColumnFamily(new Text(startKeyCf));
-            scanner.setRanges(Collections.singleton(lookupRange));
-
-            final Iterator<Map.Entry<Key,Value>> kvIter = scanner.iterator();
-            if (!kvIter.hasNext()){
-                final FlowFile flowFile = processSession.create();
-                final Map<String, String> attributes = new HashMap<>();
-                attributes.put("record.count", String.valueOf(0));
-                processSession.putAllAttributes(flowFile,attributes);
-                processSession.transfer(flowFile, REL_SUCCESS);
-                return 0;
-            } else{
-
-                while (kvIter.hasNext()) {
-                    FlowFile flowFile = processSession.create();
-
-                    final int keysPerFlowFile = 1000;
-                    final Map<String, String> attributes = new HashMap<>();
-                    flowFile = processSession.write(flowFile, new StreamCallback() {
-                        @Override
-                        public void process(final InputStream in, final OutputStream out) throws IOException {
-
-                            try{
-                                final RecordSchema writeSchema = writerFactory.getSchema(new HashMap<>(), new KeySchema());
-                                try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out)) {
-
-                                    int i = 0;
-                                    writer.beginRecordSet();
-                                    for (; i < keysPerFlowFile && kvIter.hasNext(); i++) {
-
-                                        Map.Entry<Key, Value> kv = kvIter.next();
-
-                                        final Key key = kv.getKey();
-
-                                        System.out.println(key);
-
-                                        Map<String, Object> data = new HashMap<>();
-                                        data.put("row", key.getRow().toString());
-                                        data.put("columnFamily", key.getColumnFamily().toString());
-                                        data.put("columnQualifier", key.getColumnQualifier().toString());
-                                        data.put("columnVisibility", key.getColumnVisibility().toString());
-                                        data.put("timestamp", key.getTimestamp());
-
-                                        MapRecord record = new MapRecord(new KeySchema(), data);
-                                        writer.write(record);
-
-
-                                    }
-                                    recordCounter.add(i);
-
-                                    final WriteResult writeResult = writer.finishRecordSet();
-                                    attributes.put("record.count", String.valueOf(i));
-                                    attributes.put(CoreAttributes.MIME_TYPE.key(), writer.getMimeType());
-                                    attributes.putAll(writeResult.getAttributes());
-                                }
-                            } catch (SchemaNotFoundException e) {
-                                getLogger().error("Encountered {} while creating session", new Object[] { e});
-                                throw new IOException(e);
-                            }
-                        }
-
-                    });
-                    processSession.putAllAttributes(flowFile,attributes);
-                    processSession.transfer(flowFile, REL_SUCCESS);
-                    getLogger().info("Successfully created {} records for {}", new Object[] {recordCounter.longValue(), flowFile});
-                }
-            }
-        } catch (final Exception e) {
-            getLogger().error("Failed to create flow file, exception seen: {}", new Object[] {e});
-            return 0;
-        }
-
-
-        return recordCounter.longValue();
     }
 
     @Override
@@ -390,13 +309,7 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
 
         final RecordSetWriterFactory writerFactory = processContext.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
 
-        long recordCount=0;
-        if (null != flowFile){
-            recordCount = scanWithFlowFile(writerFactory,processContext,processSession,flowFile);
-        }
-        else{
-            recordCount = scanWithProperties(writerFactory,processContext,processSession);
-        }
+        long recordCount = scanAccumulo(writerFactory,processContext,processSession,Optional.ofNullable(flowFile));
 
         processSession.adjustCounter("Records Processed", recordCount, false);
     }

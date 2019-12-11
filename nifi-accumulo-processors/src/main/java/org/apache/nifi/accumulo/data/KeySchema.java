@@ -1,4 +1,4 @@
-package org.poma.accumulo.nifi.data;
+package org.apache.nifi.accumulo.data;
 
 import org.apache.nifi.serialization.record.*;
 
