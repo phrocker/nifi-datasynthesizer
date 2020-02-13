@@ -12,8 +12,4 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-org.apache.nifi.accumulo.processors.PutAccumuloRecord
-org.apache.nifi.accumulo.processors.ScanAccumulo
-org.apache.nifi.accumulo.processors.DataSynthesizer
-org.apache.nifi.accumulo.processors.RecordIngest
-org.apache.nifi.accumulo.processors.AddSplits
+org.apache.nifi.accumulo.reporting.AccumuloReportingTask

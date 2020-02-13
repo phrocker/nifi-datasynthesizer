@@ -15,7 +15,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-nar-bundles</artifactId>
-        <version>1.11.0-SNAPSHOT</version>
+        <version>1.10.0</version>
     </parent>
 
     <properties>
@@ -23,7 +23,7 @@
     </properties>
 
     <artifactId>nifi-accumulo-bundle</artifactId>
-    <version>1.11.0-SNAPSHOT</version>
+    <version>1.10.0</version>
     <packaging>pom</packaging>
 
     <modules>
@@ -32,6 +32,7 @@
         <module>nifi-accumulo-services</module>
         <module>nifi-accumulo-services-nar</module>
         <module>nifi-accumulo-processors</module>
+        <module>nifi-accumulo-reportingtask</module>
         <module>nifi-accumulo-nar</module>
     </modules>
 
@@ -44,10 +45,12 @@
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-services</artifactId>
+                <type>nar</type>
             </dependency>
             <dependency>
                 <groupId>org.apache.nifi</groupId>
-                <artifactId>ifi-record-serialization-services</artifactId>
+                <artifactId>nifi-record-serialization-services</artifactId>
+                <type>nar</type>
             </dependency>
             <dependency>
                 <groupId>gov.nsa.datawave</groupId>

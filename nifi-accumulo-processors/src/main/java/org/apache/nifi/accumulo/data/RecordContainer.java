@@ -12,8 +12,19 @@ public class RecordContainer extends RawRecordContainerImpl {
 
     Set<String> indexedFields = new HashSet<>();
 
+    long size = 0;
+
     public RecordContainer(){
 
+    }
+
+    public void setSize(long size){
+        this.size=size;
+    }
+
+    @Override
+    public long getRawDataSize(){
+        return size;
     }
 
     public void setMap(final Multimap<String,String> map){

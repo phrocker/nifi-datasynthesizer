@@ -13,12 +13,17 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
 public class AccumuloRecordWriter extends RecordWriter<BulkIngestKey, Value> {
     private static final Logger log = Logger.getLogger(AccumuloRecordWriter.class);
 
     final MultiTableBatchWriter writer;
+
+
+    ConcurrentHashMap<String,BatchWriter> writers = new ConcurrentHashMap<>();
+
 
     AccumuloRecordWriter(){
         writer = null;
@@ -33,8 +38,14 @@ public class AccumuloRecordWriter extends RecordWriter<BulkIngestKey, Value> {
         if (null != writer) {
             try {
                 bytesWritten.add(key.getKey().getSize() + value.getSize());
+
                 final Mutation m = getMutation(key.getKey(),value);
-                writer.getBatchWriter(key.getTableName().toString()).addMutation(m);
+                BatchWriter bwriter = writers.get(key.getTableName().toString());
+                if (bwriter == null) {
+                    bwriter = writer.getBatchWriter(key.getTableName().toString());
+                    writers.put(key.getTableName().toString(),bwriter);
+                }
+                bwriter.addMutation(m);
             } catch (AccumuloException | AccumuloSecurityException | TableNotFoundException e) {
                 throw new IOException(e);
             }

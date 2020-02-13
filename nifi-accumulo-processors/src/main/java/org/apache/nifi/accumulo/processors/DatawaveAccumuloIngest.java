@@ -1,13 +1,13 @@
 package org.apache.nifi.accumulo.processors;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 import datawave.ingest.data.config.DataTypeHelperImpl;
 import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.client.MultiTableBatchWriter;
 import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
-import org.apache.nifi.accumulo.data.ContentRecordHandler;
-import org.apache.nifi.accumulo.data.RecordIngestHelper;
+import org.apache.nifi.accumulo.data.*;
 import org.apache.nifi.annotation.behavior.DynamicProperties;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
 import org.apache.nifi.annotation.behavior.InputRequirement;
@@ -18,6 +18,7 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -99,11 +100,71 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
             .build();
 
+    protected static final PropertyDescriptor ENABLE_METADATA = new PropertyDescriptor.Builder()
+            .name("Enable Metadata")
+            .description("Enables datawave metadata table")
+            .required(false)
+            .defaultValue("True").allowableValues("True","False")
+            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor ENABLE_METRICS = new PropertyDescriptor.Builder()
+            .name("Enable Metrics")
+            .description("Enables datawave ingest metrics")
+            .required(false)
+            .defaultValue("True").allowableValues("True","False")
+            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor METRICS_FIELDS = new PropertyDescriptor.Builder()
+            .name("Metrics Fields")
+            .description("Metrics Fields")
+            .required(false)
+            .defaultValue("table,fileExtension")
+            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor METRICS_RECEIVERS = new PropertyDescriptor.Builder()
+            .name("MetricsReceivers")
+            .description("Enables datawave ingest metrics")
+            .required(false)
+            .defaultValue(
+                    Joiner.on(",").join(
+                    Arrays.asList(EventCountReceiver.class.getCanonicalName(),
+                    ByteCountReceiver.class.getCanonicalName(),
+                    TableCountReceiver.class.getCanonicalName())))
+            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor LABELS_CONFIG = new PropertyDescriptor.Builder()
+            .name("Metrics Labels")
+            .description("Metrics Labels")
+            .required(false)
+            .defaultValue("table=shard,table=shardIndex,dataType=*,handler=" + RecordDataTypeHelper.class.getName())
+            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor ENABLE_GRAPH = new PropertyDescriptor.Builder()
+            .name("Enable Graph")
+            .description("Enables Graph table")
+            .required(false)
+            .defaultValue("True").allowableValues("True","False")
+            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .build();
+
     protected static final PropertyDescriptor INDEX_TABLE_NAME = new PropertyDescriptor.Builder()
             .name("Index Table Name")
             .description("Index table name")
             .required(true)
             .defaultValue("shardIndex")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor GRAPH_TABLE_NAME = new PropertyDescriptor.Builder()
+            .name("Graph Table Name")
+            .description("Graph table name")
+            .required(true)
+            .defaultValue("graph")
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
@@ -168,16 +229,23 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
     public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         final List<PropertyDescriptor> properties = new ArrayList<>(baseProperties);
         properties.add(DATA_NAME);
+        properties.add(ENABLE_METADATA);
+        properties.add(ENABLE_METRICS);
+        properties.add(METRICS_RECEIVERS);
         properties.add(INDEXED_FIELDS);
         properties.add(INDEX_ALL_FIELDS);
         properties.add(INDEX_TABLE_NAME);
         properties.add(REVERSE_INDEX_TABLE_NAME);
         properties.add(NUM_SHARD);
+        properties.add(ENABLE_GRAPH);
+        properties.add(GRAPH_TABLE_NAME);
         properties.add(INGEST_HELPER);
         properties.add(RECORD_READER);
         properties.add(DATA_HANDLER_CLASS);
         properties.add(FATAL_ERRORS);
         properties.add(UUID_FIELDS);
+        properties.add(LABELS_CONFIG);
+        properties.add(METRICS_FIELDS);
         return properties;
     }
 

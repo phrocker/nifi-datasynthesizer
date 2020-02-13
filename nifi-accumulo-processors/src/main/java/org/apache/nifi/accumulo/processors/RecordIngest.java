@@ -13,7 +13,10 @@ import datawave.ingest.data.config.DataTypeHelperImpl;
 import datawave.ingest.data.config.DataTypeOverrideHelper;
 import datawave.ingest.mapreduce.EventMapper;
 import datawave.ingest.mapreduce.StandaloneTaskAttemptContext;
+import datawave.ingest.mapreduce.handler.edge.ProtobufEdgeDataTypeHandler;
+import datawave.ingest.mapreduce.job.metrics.MetricsConfiguration;
 import datawave.ingest.test.StandaloneStatusReporter;
+import datawave.marking.MarkingFunctions;
 import org.apache.accumulo.core.client.*;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.hadoop.conf.Configuration;
@@ -26,16 +29,12 @@ import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
 import org.apache.nifi.accumulo.data.ContentRecordHandler;
 import org.apache.nifi.accumulo.data.RecordContainer;
 import org.apache.nifi.accumulo.data.RecordIngestHelper;
-import org.apache.nifi.annotation.behavior.EventDriven;
-import org.apache.nifi.annotation.behavior.InputRequirement;
-import org.apache.nifi.annotation.behavior.SupportsBatching;
+import org.apache.nifi.annotation.behavior.*;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
-import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.ValidationContext;
-import org.apache.nifi.components.ValidationResult;
-import org.apache.nifi.components.Validator;
+import org.apache.nifi.components.*;
+import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
@@ -58,10 +57,16 @@ import java.io.InputStream;
 import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 
 @EventDriven
+@DynamicProperties({
+        @DynamicProperty(name = "visibility.<FIELD_NAME>", description = "Specifies the visibility label for a particular field name.", expressionLanguageScope = ExpressionLanguageScope.FLOWFILE_ATTRIBUTES,
+                value = "visibility label for <FIELD_NAME>"
+        )
+})
 @SupportsBatching
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @Tags({"hadoop", "accumulo", "put", "record"})
@@ -128,6 +133,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
     private boolean indexAllFields = false;
 
     protected RecordPathCache recordPathCache;
+    private Boolean enableGraph = false;
 
     @Override
     public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
@@ -185,23 +191,83 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         BatchWriterConfig writerConfig = new BatchWriterConfig();
         writerConfig.setMaxWriteThreads(context.getProperty(THREADS).asInteger());
         writerConfig.setMaxMemory(maxBytes.longValue());
+        writerConfig.setMaxLatency(30,TimeUnit.SECONDS);
         tableWriter = client.createMultiTableBatchWriter(writerConfig);
-        final String table = context.getProperty(TABLE_NAME).getValue();
+        HashMap<String,String> flowAttributes = new HashMap<>();
+        final String table = context.getProperty(TABLE_NAME).evaluateAttributeExpressions(flowAttributes).getValue();
 
         final boolean createTables = context.getProperty(CREATE_TABLE).asBoolean();
 
         final String indexTable = context.getProperty(INDEX_TABLE_NAME).getValue();
         final String reverseIndexTable = context.getProperty(REVERSE_INDEX_TABLE_NAME).getValue();
+        final String graphTableName = context.getProperty(GRAPH_TABLE_NAME).getValue();
 
         final Integer shards = context.getProperty(NUM_SHARD).asInteger();
 
         if ( createTables && ! client.tableOperations().exists(indexTable) ){
             client.tableOperations().create(indexTable);
             client.tableOperations().create(reverseIndexTable);
+            client.tableOperations().create(table);
+        }
+        enableGraph = context.getProperty(ENABLE_GRAPH).asBoolean();
+
+        if (createTables && !client.tableOperations().exists(graphTableName)){
+            client.tableOperations().create(graphTableName);
+        }
+
+        final boolean enableMetadata = context.getProperty(ENABLE_METADATA).asBoolean();
+
+        if (enableMetadata)
+            conf.set("metadata.table.name","DatawaveMetadata");
+
+        final boolean enableMetrics = context.getProperty(ENABLE_METRICS).asBoolean();
+
+        if (enableMetrics) {
+            final String metricsFields = context.getProperty(METRICS_FIELDS).getValue();
+            final String metricsLabels = context.getProperty(LABELS_CONFIG).getValue();
+            final String receiver = context.getProperty(METRICS_RECEIVERS).getValue();
+            conf.set(MetricsConfiguration.METRICS_ENABLED_CONFIG, "true");
+            conf.set(MetricsConfiguration.ENABLED_LABELS_CONFIG, metricsLabels);
+            conf.set(MetricsConfiguration.FIELDS_CONFIG, metricsFields);
+            conf.set(MetricsConfiguration.RECEIVERS_CONFIG,receiver);
+            conf.set(MetricsConfiguration.METRICS_TABLE_CONFIG, "DatawaveMetrics");
+            conf.set(MetricsConfiguration.NUM_SHARDS_CONFIG, shards.toString());
+
         }
 
         conf.set("num.shards", shards.toString());
         conf.set("shard.table.name", table);
+        if (enableGraph){
+            conf.set("protobufedge.table.name",graphTableName);
+            conf.set("protobufedge.table.blacklist.enable","false");
+            if (enableMetadata){
+                conf.set("protobufedge.table.metadata.enable","true");
+            }
+            else{
+                conf.set("protobufedge.table.metadata.enable","false");
+            }
+            conf.set(ProtobufEdgeDataTypeHandler.EDGE_SETUP_FAILURE_POLICY,"CONTINUE");
+            conf.set(ProtobufEdgeDataTypeHandler.EDGE_PROCESS_FAILURE_POLICY,"CONTINUE");
+
+            conf.set(ProtobufEdgeDataTypeHandler.EDGE_PROCESS_FAILURE_POLICY,"CONTINUE");
+            conf.set(ProtobufEdgeDataTypeHandler.ACTIVITY_DATE_FUTURE_DELTA,"86400000");
+            conf.set(ProtobufEdgeDataTypeHandler.ACTIVITY_DATE_PAST_DELTA,"315360000000");
+            conf.set(ProtobufEdgeDataTypeHandler.EVALUATE_PRECONDITIONS,"false");
+
+
+            /**
+             *
+             *         setUpFailurePolicy = FailurePolicy.valueOf(conf.get(EDGE_SETUP_FAILURE_POLICY));
+             *         processFailurePolicy = FailurePolicy.valueOf(conf.get(EDGE_PROCESS_FAILURE_POLICY));
+             *
+             *         String springConfigFile = ConfigurationHelper.isNull(conf, EDGE_SPRING_CONFIG, String.class);
+             *         futureDelta = ConfigurationHelper.isNull(conf, ACTIVITY_DATE_FUTURE_DELTA, Long.class);
+             *         pastDelta = ConfigurationHelper.isNull(conf, ACTIVITY_DATE_PAST_DELTA, Long.class);
+             *
+             *         evaluatePreconditions = Boolean.parseBoolean(conf.get(EVALUATE_PRECONDITIONS));
+             *         includeAllEdges = Boolean.parseBoolean(conf.get(INCLUDE_ALL_EDGES));
+             */
+        }
 
         conf.set("shard.global.index.table.name", indexTable);
         conf.set("shard.global.rindex.table.name", reverseIndexTable);
@@ -285,6 +351,40 @@ public class RecordIngest extends DatawaveAccumuloIngest {
     @OnStopped
     public void stop() throws IOException {
         rr.close();
+        try {
+            tableWriter.close();
+        } catch (MutationsRejectedException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    /**
+     * Adapted from HBASEUtils. Their approach seemed ideal for what our intent is here.
+     * @param fieldname field name visibility
+     * @param flowFile flow file being written
+     * @param context process context
+     * @return
+     */
+    public static String produceFieldVisibility(String fieldname, FlowFile flowFile, ProcessContext context) {
+        if (org.apache.commons.lang3.StringUtils.isNotEmpty(fieldname)) {
+            return null;
+        }
+        String lookupKey = String.format("visibility.%s", fieldname);
+        String fromAttribute = flowFile.getAttribute(lookupKey);
+
+        if (fromAttribute != null) {
+            return fromAttribute;
+        } else {
+            PropertyValue descriptor = context.getProperty(lookupKey);
+            if (descriptor == null || !descriptor.isSet()) {
+                descriptor = context.getProperty(String.format("visibility.%s", fieldname));
+            }
+
+            String retVal = descriptor != null ? descriptor.evaluateAttributeExpressions(flowFile).getValue() : null;
+
+            return retVal;
+        }
     }
 
     @Override
@@ -316,6 +416,10 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
                 conf.set(dataTypeName + ".data.default.type.class", LcNoDiacriticsType.class.getCanonicalName());
 
+                List<String> canonicalHandlers = new ArrayList<>();
+                canonicalHandlers.add(ContentRecordHandler.class.getName());
+                canonicalHandlers.add(ProtobufEdgeDataTypeHandler.class.getName());
+
                 type = new Type(dataTypeName, IngestHelper.class, DatawaveRecordReader.class, new String[]{ContentRecordHandler.class.getName()}, 10, null);
 
                 TypeRegistry registry = TypeRegistry.getInstance(conf);
@@ -335,11 +439,19 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 handler.setup(new StandaloneTaskAttemptContext<LongWritable,RawRecordContainer,Text,Mutation>(myConf, new datawave.ingest.mapreduce.StandaloneStatusReporter()));
 
                 mapper.addDataType(dataTypeName,handler);
+
+                if (enableGraph) {
+                    ProtobufEdgeDataTypeHandler edgeHandler = new ProtobufEdgeDataTypeHandler();
+
+                    edgeHandler.setup(new StandaloneTaskAttemptContext<LongWritable, RawRecordContainer, Text, Mutation>(myConf, new datawave.ingest.mapreduce.StandaloneStatusReporter()));
+
+                    mapper.addDataType(dataTypeName, edgeHandler);
+                }
             }
         }
 
         final String recordPathText = processContext.getProperty(VISIBILITY_PATH).getValue();
-        final String defaultVisibility = processContext.getProperty(DEFAULT_VISIBILITY).isSet() ? processContext.getProperty(DEFAULT_VISIBILITY).getValue() : null;
+        final String defaultVisibility = processContext.getProperty(DEFAULT_VISIBILITY).isSet() ? processContext.getProperty(DEFAULT_VISIBILITY).getValue() : "";
 
         RecordPath recordPath = null;
         if (recordPathCache == null){
@@ -357,13 +469,16 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
         try (final InputStream in = processSession.read(flowFile);
              final RecordReader reader = recordParserFactory.createRecordReader(flowFile, in, getLogger())) {
+            int available = in.available();
             Record record;
 
             long events = 0;
             while ((record = reader.nextRecord()) != null) {
-
+                int estsize =  available-in.available();
+                available = in.available();
                 final RecordContainer event = new RecordContainer();
 
+                event.setSize(estsize);
                 RecordField visField = null;
                 String pathVisibility = null;
                 if (recordPath != null) {
@@ -400,17 +515,26 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 event.addIndexedFields(indexedFields);
 
 
-
-                Multimap<String,String> map = HashMultimap.create();
+                final Map<String,String> securityMarkings = new HashMap<>();
+                final Multimap<String,String> map = HashMultimap.create();
                 for (String name : reader.getSchema().getFieldNames().stream().filter(p -> !fieldsToSkip.contains(p)).collect(Collectors.toList())) {
                     String recordValue = record.getAsString(name);
                     checkField(name, recordValue, event);
                     map.put(name,recordValue);
+                    String visibility = produceFieldVisibility(name,flowFile,processContext);
+                    if (!StringUtils.isEmpty(visibility)){
+                        // assumes that all field with duplicate field names will hav this visibility
+                        securityMarkings.put(name,visibility);
+                    }
                 }
-
+                if (securityMarkings.size() > 0) {
+                    securityMarkings.put(MarkingFunctions.Default.COLUMN_VISIBILITY, visString);
+                    event.setSecurityMarkings(securityMarkings);
+                }
                 event.setMap(map);
 
                 mapper.map(new LongWritable(DatawaveRecordReader.getAdder()),event,con);
+
                 DatawaveRecordReader.incrementAdder();
                 events++;
             }
@@ -422,13 +546,19 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             ex.printStackTrace();
             getLogger().error("Failed to put records to Accumulo.", ex);
         }
+        if ( processContext.getProperty(ENABLE_METADATA).asBoolean() ||
+             processContext.getProperty(ENABLE_METRICS).asBoolean()) {
+            try {
+                getLogger().info("Writing metadata");
+                mapper.writeMetadata(con);
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
         processSession.transfer(flowFile,REL_SUCCESS);
 
-        try {
-            tableWriter.flush();
-        } catch (MutationsRejectedException e) {
-            e.printStackTrace();
-        }
 
 
     }

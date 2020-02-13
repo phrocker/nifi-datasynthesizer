@@ -71,6 +71,8 @@ import java.util.Set;
         @JsonSubTypes.Type(value = VinSampler.class, name = "vin"),
         @JsonSubTypes.Type(value = WordSampler.class, name = "word"),
         @JsonSubTypes.Type(value = ZipSampler.class, name = "zip"),
+        @JsonSubTypes.Type(value = EmailSampler.class, name = "email"),
+        @JsonSubTypes.Type(value = UsernameSampler.class, name = "username"),
 
 })
 public abstract class FieldSampler implements Sampler<JsonNode> {

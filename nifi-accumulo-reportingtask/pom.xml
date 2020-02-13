@@ -22,10 +22,21 @@
         <version>1.10.0</version>
     </parent>
 
-    <artifactId>nifi-accumulo-services</artifactId>
+    <artifactId>nifi-accumulo-reportingtask</artifactId>
     <packaging>jar</packaging>
 
     <dependencies>
+
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-accumulo-processors</artifactId>
+            <version>1.10.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-accumulo-services</artifactId>
+            <version>1.10.0</version>
+        </dependency>
 	<dependency>
 	    <groupId>org.apache.accumulo</groupId>
 	    <artifactId>accumulo-core</artifactId>
@@ -59,6 +70,11 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-path</artifactId>
+            <version>1.10.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-reporting-utils</artifactId>
             <version>1.10.0</version>
         </dependency>
         <dependency>

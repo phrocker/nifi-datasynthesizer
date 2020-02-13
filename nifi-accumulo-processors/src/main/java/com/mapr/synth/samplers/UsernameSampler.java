@@ -22,48 +22,38 @@ package com.mapr.synth.samplers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.base.Charsets;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
 import org.apache.mahout.math.random.Multinomial;
 
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.Iterator;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.Random;
 
 /**
- * Sample from a multinomial of strings.
+ * Samples a version 4 (random) UUID.  Note that the random bits generated are pull from the
+ * standard Java random number generator and are subject to limitations because of that.
  *
- * Tip of the hat to http://www.jimwegryn.com/Names/StreetNameGenerator.htm
+ * See http://en.wikipedia.org/wiki/Universally_unique_identifier#Version_4_.28random.29
  *
- * Thread safe for sampling
+ * Thread safe.
  */
-public class StringSampler extends FieldSampler {
-    protected AtomicReference<Multinomial<String>> distribution = new AtomicReference<>();
 
-    public StringSampler() {
+public class UsernameSampler extends StringSampler {
+    private Random rand = new SecureRandom();
+    public UsernameSampler() {
+        init("names.txt");
     }
-
-    public StringSampler(String resource) {
-        readDistribution(resource);
-    }
-
-    protected void readDistribution(String resourceName) {
+    protected void init(String resourceName) {
         try {
             if (distribution.compareAndSet(null, new Multinomial<>())) {
-                Splitter onTab = Splitter.on("\t").trimResults();
+
                 double i = 20;
                 for (String line : Resources.readLines(Resources.getResource(resourceName), Charsets.UTF_8)) {
                     if (!line.startsWith("#")) {
-                        Iterator<String> parts = onTab.split(line).iterator();
-                        String name = translate(parts.next());
-                        double weight;
-                        if (parts.hasNext()) {
-                            weight = Double.parseDouble(parts.next());
-                        } else {
-                            weight = 1.0 / i;
-                        }
+                        String name = translate(line);
+                        double weight = 1.0 / i;
                         distribution.get().add(name, weight);
                     }
                     i++;
@@ -75,23 +65,7 @@ public class StringSampler extends FieldSampler {
         }
     }
 
-    public void setDist(Map<String, ?> dist) {
-        Preconditions.checkArgument(dist.size() > 0);
-        distribution.compareAndSet(null, new Multinomial<>());
-        for (String key : dist.keySet()) {
-            distribution.get().add(key, Double.parseDouble(dist.get(key).toString()));
-        }
-    }
-
-
-    protected String translate(String s) {
-        return s;
-    }
-
-    @Override
-    public JsonNode sample() {
-      synchronized (this) {
-        return new TextNode(distribution.get().sample());
-      }
+    public static void main(String [] args){
+        UsernameSampler sampler = new UsernameSampler();
     }
 }
