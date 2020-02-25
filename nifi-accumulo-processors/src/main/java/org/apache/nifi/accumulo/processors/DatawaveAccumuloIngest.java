@@ -6,7 +6,6 @@ import com.google.common.collect.Multimap;
 import datawave.ingest.data.config.DataTypeHelperImpl;
 import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.client.MultiTableBatchWriter;
-import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
 import org.apache.nifi.accumulo.data.*;
 import org.apache.nifi.annotation.behavior.DynamicProperties;
 import org.apache.nifi.annotation.behavior.DynamicProperty;
@@ -33,6 +32,12 @@ import java.util.concurrent.ConcurrentHashMap;
         @DynamicProperty(name = "visibility.<COLUMN FAMILY>.<COLUMN QUALIFIER>", description = "Visibility label for the specified column qualifier " +
                 "qualified by a configured column family.", expressionLanguageScope = ExpressionLanguageScope.FLOWFILE_ATTRIBUTES,
                 value = "visibility label for <COLUMN FAMILY>:<COLUMN QUALIFIER>."
+        ),
+        @DynamicProperty(name = "FROM.<FIELD_NAME>", description = "Specifies the from edge relationship.", expressionLanguageScope = ExpressionLanguageScope.NONE,
+                value = "Edge from relationships"
+        ),
+        @DynamicProperty(name = "TO.<FIELD_NAME>", description = "Specifies the to edge relationship.", expressionLanguageScope = ExpressionLanguageScope.NONE,
+                value = "Edge to relationships"
         )
 })
 public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
@@ -210,11 +215,6 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
 
 
     /**
-     * Connector service which provides us a connector if the configuration is correct.
-     */
-    protected BaseAccumuloService accumuloConnectorService;
-
-    /**
      * Connector that we need to persist while we are operational.
      */
     protected AccumuloClient client;
@@ -223,6 +223,79 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
      * Table writer that will close when we shutdown or upon error.
      */
     protected MultiTableBatchWriter tableWriter = null;
+
+
+    @Override
+    protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
+        if (propertyDescriptorName.startsWith("visibility.")) {
+            String[] parts = propertyDescriptorName.split("\\.");
+            String displayName;
+            String description;
+
+            if (parts.length == 2) {
+                displayName = String.format("Column Family %s Default Visibility", parts[1]);
+                description = String.format("Default visibility setting for %s", parts[1]);
+            } else if (parts.length == 3) {
+                displayName = String.format("Column Qualifier %s.%s Default Visibility", parts[1], parts[2]);
+                description = String.format("Default visibility setting for %s.%s", parts[1], parts[2]);
+            } else {
+                return null;
+            }
+
+            return new PropertyDescriptor.Builder()
+                    .name(propertyDescriptorName)
+                    .displayName(displayName)
+                    .description(description)
+                    .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+                    .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+                    .dynamic(true)
+                    .build();
+        }
+        else if ( propertyDescriptorName.startsWith("FROM")){
+            String[] parts = propertyDescriptorName.split("\\.");
+            String displayName;
+            String description;
+
+            if (parts.length == 2) {
+                displayName = String.format("%s FROM edge relationship", parts[1]);
+                description = String.format("Specifies the from edge relationship", parts[1]);
+            } else {
+                return null;
+            }
+
+            return new PropertyDescriptor.Builder()
+                    .name(propertyDescriptorName)
+                    .displayName(displayName)
+                    .description(description)
+                    .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+                    .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+                    .dynamic(true)
+                    .build();
+        }
+        else if ( propertyDescriptorName.startsWith("TO")){
+            String[] parts = propertyDescriptorName.split("\\.");
+            String displayName;
+            String description;
+
+            if (parts.length == 2) {
+                displayName = String.format("%s TO edge relationship", parts[1]);
+                description = String.format("Specifies the to edge relationship", parts[1]);
+            } else {
+                return null;
+            }
+
+            return new PropertyDescriptor.Builder()
+                    .name(propertyDescriptorName)
+                    .displayName(displayName)
+                    .description(description)
+                    .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+                    .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+                    .dynamic(true)
+                    .build();
+        }
+
+        return null;
+    }
 
 
     @Override

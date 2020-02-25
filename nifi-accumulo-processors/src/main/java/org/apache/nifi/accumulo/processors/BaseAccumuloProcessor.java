@@ -18,10 +18,14 @@
 package org.apache.nifi.accumulo.processors;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
+import org.apache.accumulo.core.client.Accumulo;
+import org.apache.accumulo.core.client.AccumuloClient;
+import org.apache.accumulo.core.client.security.tokens.AuthenticationToken;
+import org.apache.accumulo.core.client.security.tokens.PasswordToken;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.processor.AbstractProcessor;
+import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.util.StandardValidators;
 
 /**
@@ -30,12 +34,34 @@ import org.apache.nifi.processor.util.StandardValidators;
  */
 public abstract class BaseAccumuloProcessor extends AbstractProcessor {
 
-    protected static final PropertyDescriptor ACCUMULO_CONNECTOR_SERVICE = new PropertyDescriptor.Builder()
-            .name("accumulo-connector-service")
-            .displayName("Accumulo Connector Service")
-            .description("Specifies the Controller Service to use for accessing Accumulo.")
-            .required(true)
-            .identifiesControllerService(BaseAccumuloService.class)
+    protected static final PropertyDescriptor ZOOKEEPER_QUORUM = new PropertyDescriptor.Builder()
+            .name("ZooKeeper Quorum")
+            .description("Comma-separated list of ZooKeeper hosts for Accumulo.")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .build();
+
+    protected static final PropertyDescriptor INSTANCE_NAME = new PropertyDescriptor.Builder()
+            .name("Instance Name")
+            .description("Instance name of the Accumulo cluster")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .build();
+
+
+    protected static final PropertyDescriptor ACCUMULO_USER = new PropertyDescriptor.Builder()
+            .name("Accumulo User")
+            .description("Connecting user for Accumulo")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .build();
+
+    protected static final PropertyDescriptor ACCUMULO_PASSWORD = new PropertyDescriptor.Builder()
+            .name("Accumulo Password")
+            .description("Connecting user's password when using the PASSWORD Authentication type")
+            .sensitive(true)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .build();
 
 
@@ -70,7 +96,16 @@ public abstract class BaseAccumuloProcessor extends AbstractProcessor {
      * so that implementations must constructor their own lists knowingly
      */
 
-    protected static final ImmutableList<PropertyDescriptor> baseProperties = ImmutableList.of(ACCUMULO_CONNECTOR_SERVICE,TABLE_NAME,CREATE_TABLE,THREADS);
+    protected static final ImmutableList<PropertyDescriptor> baseProperties = ImmutableList.of(ZOOKEEPER_QUORUM, INSTANCE_NAME, ACCUMULO_USER, ACCUMULO_PASSWORD,TABLE_NAME,CREATE_TABLE,THREADS);
 
+    AccumuloClient getClient(final ProcessContext context){
+        final String instanceName = context.getProperty(INSTANCE_NAME).evaluateAttributeExpressions().getValue();
+        final String zookeepers = context.getProperty(ZOOKEEPER_QUORUM).evaluateAttributeExpressions().getValue();
+        final String accumuloUser = context.getProperty(ACCUMULO_USER).evaluateAttributeExpressions().getValue();
+
+        final AuthenticationToken token = new PasswordToken(context.getProperty(ACCUMULO_PASSWORD).getValue());
+
+        return Accumulo.newClient().to(instanceName,zookeepers).as(accumuloUser,token).build();
+    }
 
 }

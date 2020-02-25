@@ -11,29 +11,44 @@
     language governing permissions and limitations under the License. -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
-    <parent>
-        <groupId>org.apache.nifi</groupId>
-        <artifactId>nifi-nar-bundles</artifactId>
-        <version>1.10.0</version>
-    </parent>
-
     <properties>
         <accumulo.version>2.0.0</accumulo.version>
     </properties>
+    <parent>
+        <groupId>org.apache.nifi</groupId>
+        <artifactId>nifi-nar-bundles</artifactId>
+        <version>1.11.2</version>
+    </parent>
+
 
     <artifactId>nifi-accumulo-bundle</artifactId>
-    <version>1.10.0</version>
+    <version>1.11.2</version>
     <packaging>pom</packaging>
+    <!--
+<build>
 
+        <plugins>
+
+            <plugin>
+
+                <groupId>org.apache.nifi</groupId>
+
+                <artifactId>nifi-nar-maven-plugin</artifactId>
+
+                <version>1.1.0</version>
+
+                <extensions>true</extensions>
+
+            </plugin>
+
+        </plugins>
+
+    </build>
+    -->
     <modules>
-        <module>nifi-accumulo-services-api</module>
-        <module>nifi-accumulo-services-api-nar</module>
-        <module>nifi-accumulo-services</module>
-        <module>nifi-accumulo-services-nar</module>
         <module>nifi-accumulo-processors</module>
-        <module>nifi-accumulo-reportingtask</module>
         <module>nifi-accumulo-nar</module>
+        <module>nifi-accumulo-reportingtask</module>
     </modules>
 
     <dependencyManagement>
@@ -41,16 +56,7 @@
             <dependency>
                 <groupId>org.apache.nifi</groupId>
                 <artifactId>nifi-accumulo-processors</artifactId>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.nifi</groupId>
-                <artifactId>nifi-services</artifactId>
-                <type>nar</type>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.nifi</groupId>
-                <artifactId>nifi-record-serialization-services</artifactId>
-                <type>nar</type>
+                <version>1.11.2</version>
             </dependency>
             <dependency>
                 <groupId>gov.nsa.datawave</groupId>

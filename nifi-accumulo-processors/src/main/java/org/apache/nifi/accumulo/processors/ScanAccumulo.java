@@ -24,7 +24,6 @@ import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.hadoop.io.Text;
-import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
 import org.apache.nifi.accumulo.data.KeySchema;
 import org.apache.nifi.annotation.behavior.EventDriven;
 import org.apache.nifi.annotation.behavior.InputRequirement;
@@ -161,11 +160,6 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
             .build();
 
     /**
-     * Connector service which provides us a connector if the configuration is correct.
-     */
-    protected BaseAccumuloService accumuloConnectorService;
-
-    /**
      * Connector that we need to persist while we are operational.
      */
     protected AccumuloClient client;
@@ -191,8 +185,7 @@ public class ScanAccumulo extends BaseAccumuloProcessor {
 
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
-        accumuloConnectorService = context.getProperty(ACCUMULO_CONNECTOR_SERVICE).asControllerService(BaseAccumuloService.class);
-        this.client = accumuloConnectorService.getClient();
+        this.client = getClient(context);
     }
 
     private Authorizations stringToAuth(final String authorizations){

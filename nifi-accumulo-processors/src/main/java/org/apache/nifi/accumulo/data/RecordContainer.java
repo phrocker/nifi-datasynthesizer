@@ -3,6 +3,7 @@ package org.apache.nifi.accumulo.data;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import datawave.ingest.config.RawRecordContainerImpl;
+import datawave.ingest.mapreduce.handler.edge.define.EdgeDefinitionConfigurationHelper;
 
 import java.util.*;
 
@@ -11,6 +12,8 @@ public class RecordContainer extends RawRecordContainerImpl {
     Multimap<String,String> map = HashMultimap.create();
 
     Set<String> indexedFields = new HashSet<>();
+
+    EdgeDefinitionConfigurationHelper edgeConfig = null;
 
     long size = 0;
 
@@ -49,4 +52,15 @@ public class RecordContainer extends RawRecordContainerImpl {
     public Multimap<String, String> getMap() {
         return map;
     }
+
+
+    public EdgeDefinitionConfigurationHelper getEdgeConfiguration(){
+        return edgeConfig;
+    }
+
+    public void setEdgeConfiguration(EdgeDefinitionConfigurationHelper config){
+        edgeConfig = config;
+    }
+
+
 }

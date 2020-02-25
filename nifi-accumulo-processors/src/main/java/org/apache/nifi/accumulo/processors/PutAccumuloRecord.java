@@ -63,7 +63,6 @@ import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.util.StringUtils;
-import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
 import org.apache.nifi.accumulo.data.AccumuloRecordConfiguration;
 
 import javax.xml.bind.DatatypeConverter;
@@ -229,11 +228,6 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
 
 
     /**
-     * Connector service which provides us a connector if the configuration is correct.
-     */
-    protected BaseAccumuloService accumuloConnectorService;
-
-    /**
      * Connector that we need to persist while we are operational.
      */
     protected AccumuloClient client;
@@ -274,9 +268,8 @@ public class PutAccumuloRecord extends BaseAccumuloProcessor {
 
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
-        accumuloConnectorService = context.getProperty(ACCUMULO_CONNECTOR_SERVICE).asControllerService(BaseAccumuloService.class);
         final Double maxBytes = context.getProperty(MEMORY_SIZE).asDataSize(DataUnit.B);
-        this.client = accumuloConnectorService.getClient();
+        this.client = getClient(context);
         BatchWriterConfig writerConfig = new BatchWriterConfig();
         writerConfig.setMaxWriteThreads(context.getProperty(THREADS).asInteger());
         writerConfig.setMaxMemory(maxBytes.longValue());

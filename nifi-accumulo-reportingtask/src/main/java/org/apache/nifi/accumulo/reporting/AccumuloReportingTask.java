@@ -26,8 +26,7 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.lib.map.WrappedMapper;
 import org.apache.hadoop.mapreduce.task.MapContextImpl;
-import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
-import org.apache.nifi.accumulo.data.ContentRecordHandler;
+ import org.apache.nifi.accumulo.data.ContentRecordHandler;
 import org.apache.nifi.accumulo.data.RecordContainer;
 import org.apache.nifi.accumulo.data.RecordIngestHelper;
 import org.apache.nifi.accumulo.processors.AccumuloRecordWriter;
@@ -52,7 +51,6 @@ import org.apache.nifi.provenance.ProvenanceEventType;
 import org.apache.nifi.reporting.AbstractReportingTask;
 import org.apache.nifi.reporting.ReportingContext;
 import org.apache.nifi.reporting.util.provenance.ProvenanceEventConsumer;
-import org.apache.nifi.serialization.record.RecordField;
 
 import javax.json.*;
 import java.io.IOException;
@@ -73,15 +71,6 @@ public class AccumuloReportingTask extends AbstractReportingTask {
     protected static final String LAST_EVENT_ID_KEY = "last_event_id";
     protected static final String DESTINATION_URL_PATH = "/nifi";
     protected static final String TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
-
-
-    protected static final PropertyDescriptor ACCUMULO_CONNECTOR_SERVICE = new PropertyDescriptor.Builder()
-            .name("accumulo-connector-service")
-            .displayName("Accumulo Connector Service")
-            .description("Specifies the Controller Service to use for accessing Accumulo.")
-            .required(false)
-            .identifiesControllerService(BaseAccumuloService.class)
-            .build();
 
 
     /***
@@ -260,10 +249,6 @@ public class AccumuloReportingTask extends AbstractReportingTask {
             .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .defaultValue("http://${hostname(true)}:8080/nifi")
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR).build();
-    /**
-     * Connector service which provides us a connector if the configuration is correct.
-     */
-    protected BaseAccumuloService accumuloConnectorService;
 
     /**
      * Connector that we need to persist while we are operational.
@@ -287,7 +272,6 @@ public class AccumuloReportingTask extends AbstractReportingTask {
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         final List<PropertyDescriptor> properties = new ArrayList<>();
-        properties.add(ACCUMULO_CONNECTOR_SERVICE);
         properties.add(ZOOKEEPER_QUORUM);
         properties.add(ACCUMULO_PASSWORD);
         properties.add(ACCUMULO_USER);
@@ -410,20 +394,14 @@ public class AccumuloReportingTask extends AbstractReportingTask {
 
     @OnScheduled
     public void schedule(ConfigurationContext context) {
-        if (context.getProperty(ACCUMULO_CONNECTOR_SERVICE).isSet()) {
-            accumuloConnectorService = context.getProperty(ACCUMULO_CONNECTOR_SERVICE).asControllerService(BaseAccumuloService.class);
-            this.client = accumuloConnectorService.getClient();
-        }
-        else
-        {
-            final String instanceName = context.getProperty(INSTANCE_NAME).evaluateAttributeExpressions().getValue();
-            final String zookeepers = context.getProperty(ZOOKEEPER_QUORUM).evaluateAttributeExpressions().getValue();
-            final String accumuloUser = context.getProperty(ACCUMULO_USER).evaluateAttributeExpressions().getValue();
+        final String instanceName = context.getProperty(INSTANCE_NAME).evaluateAttributeExpressions().getValue();
+        final String zookeepers = context.getProperty(ZOOKEEPER_QUORUM).evaluateAttributeExpressions().getValue();
+        final String accumuloUser = context.getProperty(ACCUMULO_USER).evaluateAttributeExpressions().getValue();
 
-            final AuthenticationToken token = new PasswordToken(context.getProperty(ACCUMULO_PASSWORD).getValue());
+        final AuthenticationToken token = new PasswordToken(context.getProperty(ACCUMULO_PASSWORD).getValue());
 
-            this.client = Accumulo.newClient().to(instanceName,zookeepers).as(accumuloUser,token).build();
-        }
+        this.client = Accumulo.newClient().to(instanceName,zookeepers).as(accumuloUser,token).build();
+
         final Double maxBytes = context.getProperty(MEMORY_SIZE).asDataSize(DataUnit.B);
 
         BatchWriterConfig writerConfig = new BatchWriterConfig();
@@ -612,7 +590,6 @@ public class AccumuloReportingTask extends AbstractReportingTask {
                     final RecordContainer event = new RecordContainer();
                     String json = jo.toString();
                     event.setSize(json.length());
-                    RecordField visField = null;
                     String pathVisibility = null;
 
                     String visString = pathVisibility != null ? pathVisibility : defaultVisibility;

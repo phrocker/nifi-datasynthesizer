@@ -13,7 +13,11 @@ import datawave.ingest.data.config.DataTypeHelperImpl;
 import datawave.ingest.data.config.DataTypeOverrideHelper;
 import datawave.ingest.mapreduce.EventMapper;
 import datawave.ingest.mapreduce.StandaloneTaskAttemptContext;
+
 import datawave.ingest.mapreduce.handler.edge.ProtobufEdgeDataTypeHandler;
+import datawave.ingest.mapreduce.handler.edge.define.EdgeDefinition;
+import datawave.ingest.mapreduce.handler.edge.define.EdgeDefinitionConfigurationHelper;
+import datawave.ingest.mapreduce.handler.edge.define.EdgeNode;
 import datawave.ingest.mapreduce.job.metrics.MetricsConfiguration;
 import datawave.ingest.test.StandaloneStatusReporter;
 import datawave.marking.MarkingFunctions;
@@ -25,8 +29,8 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.lib.map.WrappedMapper;
 import org.apache.hadoop.mapreduce.task.MapContextImpl;
-import org.apache.nifi.accumulo.controllerservices.BaseAccumuloService;
 import org.apache.nifi.accumulo.data.ContentRecordHandler;
+import org.apache.nifi.accumulo.data.EdgeDataTypeHandler;
 import org.apache.nifi.accumulo.data.RecordContainer;
 import org.apache.nifi.accumulo.data.RecordIngestHelper;
 import org.apache.nifi.annotation.behavior.*;
@@ -34,7 +38,6 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.components.*;
-import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessContext;
@@ -51,6 +54,7 @@ import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.util.StringUtils;
+import org.apache.nifi.util.Tuple;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -62,16 +66,12 @@ import java.util.stream.Collectors;
 
 
 @EventDriven
-@DynamicProperties({
-        @DynamicProperty(name = "visibility.<FIELD_NAME>", description = "Specifies the visibility label for a particular field name.", expressionLanguageScope = ExpressionLanguageScope.FLOWFILE_ATTRIBUTES,
-                value = "visibility label for <FIELD_NAME>"
-        )
-})
 @SupportsBatching
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @Tags({"hadoop", "accumulo", "put", "record"})
 public class RecordIngest extends DatawaveAccumuloIngest {
 
+    public RecordIngest(){}
     protected static final PropertyDescriptor RECORD_READER_FACTORY = new PropertyDescriptor.Builder()
             .name("record-reader")
             .displayName("Record Reader")
@@ -96,6 +96,15 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             .required(false)
             .addValidator(Validator.VALID)
             .build();
+
+    protected static final PropertyDescriptor EDGE_TYPES = new PropertyDescriptor.Builder()
+            .name("edge-types")
+            .displayName("Edge Types")
+            .description("Comma separated list that defines the edge types from which we will extract edge definitions")
+            .required(false)
+            .addValidator(Validator.VALID)
+            .build();
+
 
     protected static final PropertyDescriptor DEFAULT_VISIBILITY = new PropertyDescriptor.Builder()
             .name("default-visibility")
@@ -134,6 +143,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
     protected RecordPathCache recordPathCache;
     private Boolean enableGraph = false;
+    private String edgeTypes;
 
     @Override
     public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
@@ -141,12 +151,14 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         properties.add(RECORD_READER_FACTORY);
         properties.add(MEMORY_SIZE);
         properties.add(INGEST_HELPER);
-        properties.add(ACCUMULO_CONNECTOR_SERVICE);
         properties.add(TABLE_NAME);
         properties.add(CREATE_TABLE);
         properties.add(THREADS);
         properties.add(VISIBILITY_PATH);
         properties.add(DEFAULT_VISIBILITY);
+//        properties.add(FROM_EDGE_PATH);
+  //      properties.add(TO_EDGE_PATH);
+        properties.add(EDGE_TYPES);
         return properties;
     }
 
@@ -173,6 +185,8 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         return set;
     }
 
+    Map<String, Tuple<String,String>> recordPathForEdges = new HashMap<>();
+
     @OnScheduled
     public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException, TableExistsException, AccumuloSecurityException, AccumuloException {
 
@@ -184,10 +198,18 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         conf = new Configuration();
 
 
-
-        accumuloConnectorService = context.getProperty(ACCUMULO_CONNECTOR_SERVICE).asControllerService(BaseAccumuloService.class);
+        edgeTypes = context.getProperty(EDGE_TYPES).getValue(); // get the edge types if any
+        if (edgeTypes != null){
+            Splitter.on(",").split(edgeTypes).forEach( x ->{
+                if (context.getProperty("FROM." + x).isSet() && context.getProperty("TO." + x).isSet()) {
+                    final String fromrel = context.getProperty("FROM." + x).getValue();
+                    final String torel = context.getProperty("TO." + x).getValue();
+                    recordPathForEdges.put(x,new Tuple<>(fromrel,torel));
+                }
+            });
+        }
         final Double maxBytes = context.getProperty(MEMORY_SIZE).asDataSize(DataUnit.B);
-        this.client = accumuloConnectorService.getClient();
+        this.client = getClient(context);
         BatchWriterConfig writerConfig = new BatchWriterConfig();
         writerConfig.setMaxWriteThreads(context.getProperty(THREADS).asInteger());
         writerConfig.setMaxMemory(maxBytes.longValue());
@@ -215,10 +237,20 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             client.tableOperations().create(graphTableName);
         }
 
+
+
+
         final boolean enableMetadata = context.getProperty(ENABLE_METADATA).asBoolean();
 
-        if (enableMetadata)
-            conf.set("metadata.table.name","DatawaveMetadata");
+        if (enableMetadata) {
+            conf.set("metadata.table.name", "DatawaveMetadata");
+            if (createTables){
+                if (!client.tableOperations().exists("DatawaveMetadata"))
+                    client.tableOperations().create("DatawaveMetadata");
+                if (!client.tableOperations().exists("DatawaveMetrics"))
+                    client.tableOperations().create("DatawaveMetrics");
+            }
+        }
 
         final boolean enableMetrics = context.getProperty(ENABLE_METRICS).asBoolean();
 
@@ -418,7 +450,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
                 List<String> canonicalHandlers = new ArrayList<>();
                 canonicalHandlers.add(ContentRecordHandler.class.getName());
-                canonicalHandlers.add(ProtobufEdgeDataTypeHandler.class.getName());
+                canonicalHandlers.add(EdgeDataTypeHandler.class.getName());
 
                 type = new Type(dataTypeName, IngestHelper.class, DatawaveRecordReader.class, new String[]{ContentRecordHandler.class.getName()}, 10, null);
 
@@ -441,7 +473,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 mapper.addDataType(dataTypeName,handler);
 
                 if (enableGraph) {
-                    ProtobufEdgeDataTypeHandler edgeHandler = new ProtobufEdgeDataTypeHandler();
+                    EdgeDataTypeHandler edgeHandler = new EdgeDataTypeHandler();
 
                     edgeHandler.setup(new StandaloneTaskAttemptContext<LongWritable, RawRecordContainer, Text, Mutation>(myConf, new datawave.ingest.mapreduce.StandaloneStatusReporter()));
 
@@ -451,15 +483,21 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         }
 
         final String recordPathText = processContext.getProperty(VISIBILITY_PATH).getValue();
+  //      final String fromEdgePathText = processContext.getProperty(FROM_EDGE_PATH).getValue();
+//        final String toEdgePathText = processContext.getProperty(TO_EDGE_PATH).getValue();
         final String defaultVisibility = processContext.getProperty(DEFAULT_VISIBILITY).isSet() ? processContext.getProperty(DEFAULT_VISIBILITY).getValue() : "";
 
-        RecordPath recordPath = null;
+        RecordPath recordPath = null; // ,fromEdgePath=null,toEdgePath=null;
         if (recordPathCache == null){
             recordPathCache = new RecordPathCache(25);
         }
         if (!StringUtils.isEmpty(recordPathText)) {
             recordPath = recordPathCache.getCompiled(recordPathText);
         }
+
+
+
+
 
         final String indexFields = processContext.getProperty(INDEXED_FIELDS).isSet() ? "" : processContext.getProperty(INDEXED_FIELDS).evaluateAttributeExpressions(flowFile).getValue();
 
@@ -489,6 +527,61 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                         fieldsToSkip.add(visField.getFieldName());
                     pathVisibility = fv.toString();
                 }
+
+
+                EdgeDefinitionConfigurationHelper edgeHelper = new EdgeDefinitionConfigurationHelper();
+
+                HashSet<String> relationships = new HashSet<>(Arrays.asList("FROM","TO"));
+                HashSet<String> collections = new HashSet<>(Arrays.asList("MY_DATA","UNKONWN"));
+
+                final Record myRecord = record;
+                final List<EdgeDefinition> defs = new ArrayList<>();
+
+                recordPathForEdges.entrySet().forEach( entry -> {
+
+                    RecordPath fromRecordPath  = recordPathCache.getCompiled(entry.getValue().getKey());
+                    RecordPath toRecordPath  = recordPathCache.getCompiled(entry.getValue().getValue());
+
+                    EdgeDefinition def = new EdgeDefinition();
+                    def.setEdgeType(entry.getKey());
+                    def.setDirection("bi"); // bi directional edges
+                    List<EdgeNode> edgeNodes = new ArrayList<>();
+                    if (fromRecordPath != null) {
+                        final RecordPathResult result = fromRecordPath.evaluate(myRecord);
+                        FieldValue fv = result.getSelectedFields().findFirst().get();
+                        RecordField fromField = fv.getField();
+                        if (null != fromField){
+                            EdgeNode edgeNode = new EdgeNode();
+                            edgeNode.setCollection("MY_DATA");
+                            edgeNode.setRelationship("FROM");
+                            edgeNode.setSelector(fromField.getFieldName());
+                            edgeNodes.add(edgeNode);
+                        }
+                    }
+
+                    if (toRecordPath != null) {
+                        final RecordPathResult result = toRecordPath.evaluate(myRecord);
+                        FieldValue fv = result.getSelectedFields().findFirst().get();
+                        RecordField fromField = fv.getField();
+                        if (null != fromField){
+                            EdgeNode edgeNode = new EdgeNode();
+                            edgeNode.setCollection("MY_DATA");
+                            edgeNode.setRelationship("TO");
+                            edgeNode.setSelector(fromField.getFieldName());
+                            edgeNodes.add(edgeNode);
+                        }
+                    }
+                    def.setAllPairs(edgeNodes);
+
+                    defs.add(def);
+                });
+                edgeHelper.setEdges(defs);
+                edgeHelper.setActivityDateField("LOAD_DATE");
+                edgeHelper.setEdgeAttribute2("nifi");
+                edgeHelper.setEdgeAttribute3("recordingest");
+                edgeHelper.init(relationships,collections);
+
+
                 String visString = pathVisibility != null ? pathVisibility : defaultVisibility;
 
                 event.setDataType(dataTypeHelper.getType());
@@ -496,18 +589,25 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 event.setRawFileTimestamp(flowFile.getEntryDate());
                 event.setDate(flowFile.getEntryDate());
                 event.setVisibility(visString);
-                
+                event.setEdgeConfiguration(edgeHelper);
+
+
                 eventId = UUID.randomUUID().toString();
 
                 event.setId(DataTypeOverrideHelper.getUid(eventId, event.getTimeForUID(), uidBuilder));
 
                 ArrayList<String> indexedFields = new ArrayList<>();
+                ArrayList<String> fromFields = new ArrayList<>();
+                ArrayList<String> toFields = new ArrayList<>();
 
                 if (indexAllFields) {
                     record.getSchema().getFields().stream().forEach(x ->
                     {
                         indexedFields.add(x.getFieldName().toUpperCase());
+                        toFields.add(x.getFieldName().toUpperCase());
                     });
+
+
                 }
                 else{
                     Splitter.on(",").split(indexFields).forEach(indexedFields::add);
