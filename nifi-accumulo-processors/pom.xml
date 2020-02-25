@@ -74,7 +74,7 @@
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-path</artifactId>
             <version>1.11.2</version>
-            <scope>provided</scope>
+            <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>

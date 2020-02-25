@@ -207,7 +207,9 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                     recordPathForEdges.put(x,new Tuple<>(fromrel,torel));
                 }
             });
+
         }
+
         final Double maxBytes = context.getProperty(MEMORY_SIZE).asDataSize(DataUnit.B);
         this.client = getClient(context);
         BatchWriterConfig writerConfig = new BatchWriterConfig();
