@@ -3,6 +3,7 @@ package org.apache.nifi.accumulo.processors;
 import com.google.common.base.Splitter;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.SetMultimap;
 import datawave.data.hash.UID;
 import datawave.data.hash.UIDBuilder;
 import datawave.data.type.LcNoDiacriticsType;
@@ -55,6 +56,7 @@ import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.util.StringUtils;
 import org.apache.nifi.util.Tuple;
+import scala.annotation.meta.field;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -62,6 +64,8 @@ import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 
@@ -70,6 +74,8 @@ import java.util.stream.Collectors;
 @InputRequirement(InputRequirement.Requirement.INPUT_REQUIRED)
 @Tags({"hadoop", "accumulo", "put", "record"})
 public class RecordIngest extends DatawaveAccumuloIngest {
+
+
 
     public RecordIngest(){}
     protected static final PropertyDescriptor RECORD_READER_FACTORY = new PropertyDescriptor.Builder()
@@ -105,6 +111,14 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             .addValidator(Validator.VALID)
             .build();
 
+    protected static final PropertyDescriptor EDGE_COLLECTION = new PropertyDescriptor.Builder()
+            .name("edge-collection")
+            .displayName("Edge Collection")
+            .description("name of your collection of edges")
+            .required(false)
+            .defaultValue("MY_DATA")
+            .addValidator(Validator.VALID)
+            .build();
 
     protected static final PropertyDescriptor DEFAULT_VISIBILITY = new PropertyDescriptor.Builder()
             .name("default-visibility")
@@ -135,7 +149,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
     private Type type;
     private String helperClassStr;
     private AccumuloRecordWriter recordWriter;
-    private DatawaveRecordReader rr;
+    private DatawaveRecordReader rr = null;
     private EventMapper<LongWritable,RawRecordContainer,Text,Mutation> mapper;
     private MapContext<LongWritable,RawRecordContainer,Text,Mutation> mapContext;
     private Mapper<LongWritable, RawRecordContainer, Text, Mutation>.Context con;
@@ -144,6 +158,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
     protected RecordPathCache recordPathCache;
     private Boolean enableGraph = false;
     private String edgeTypes;
+    private String edgeCollection;
 
     @Override
     public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
@@ -156,9 +171,8 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         properties.add(THREADS);
         properties.add(VISIBILITY_PATH);
         properties.add(DEFAULT_VISIBILITY);
-//        properties.add(FROM_EDGE_PATH);
-  //      properties.add(TO_EDGE_PATH);
         properties.add(EDGE_TYPES);
+        properties.add(EDGE_COLLECTION);
         return properties;
     }
 
@@ -185,7 +199,11 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         return set;
     }
 
-    Map<String, Tuple<String,String>> recordPathForEdges = new HashMap<>();
+
+    SetMultimap<String, String> recordPathFromEdges = HashMultimap.create();
+    SetMultimap<String, String> recordPathToEdges =  HashMultimap.create();
+    Map<String, Pattern> recordPathFromRegexes = new HashMap<>();
+    Map<String, Pattern> recordPathToRegexes = new HashMap<>();
 
     @OnScheduled
     public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException, TableExistsException, AccumuloSecurityException, AccumuloException {
@@ -201,11 +219,32 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         edgeTypes = context.getProperty(EDGE_TYPES).getValue(); // get the edge types if any
         if (edgeTypes != null){
             Splitter.on(",").split(edgeTypes).forEach( x ->{
-                if (context.getProperty("FROM." + x).isSet() && context.getProperty("TO." + x).isSet()) {
+                if (context.getProperty("FROM." + x).isSet()) {
+
                     final String fromrel = context.getProperty("FROM." + x).getValue();
-                    final String torel = context.getProperty("TO." + x).getValue();
-                    recordPathForEdges.put(x,new Tuple<>(fromrel,torel));
+                    getLogger().info("Have " + x + " from " + fromrel);
+                    Splitter.on(",").split(fromrel).forEach( rel -> {
+                        recordPathFromEdges.put(x, rel);
+                    });
                 }
+                else if( context.getProperty("FROM." + x + ".regex").isSet() ){
+                    getLogger().info("Have " + x + " regex from");
+                    recordPathFromRegexes.put(x, Pattern.compile(context.getProperty("FROM." + x + ".regex").getValue()));
+                }
+
+                if (context.getProperty("TO." + x).isSet()){
+                    final String torel = context.getProperty("TO." + x).getValue();
+                    getLogger().info("Have " + x + " to " + torel);
+                    Splitter.on(",").split(torel).forEach( rel -> {
+                        recordPathFromEdges.put(x, rel);
+                    });
+                }
+                else if( context.getProperty("TO." + x + ".regex").isSet() ){
+                    getLogger().info("Have " + x + " regex to");
+                    recordPathToRegexes.put(x, Pattern.compile(context.getProperty("TO." + x + ".regex").getValue()));
+                }
+
+
             });
 
         }
@@ -268,6 +307,8 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             conf.set(MetricsConfiguration.NUM_SHARDS_CONFIG, shards.toString());
 
         }
+        
+        edgeCollection = context.getProperty(EDGE_COLLECTION).getValue();
 
         conf.set("num.shards", shards.toString());
         conf.set("shard.table.name", table);
@@ -384,9 +425,11 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
     @OnStopped
     public void stop() throws IOException {
-        rr.close();
+        if (null != rr)
+            rr.close();
         try {
-            tableWriter.close();
+            if (tableWriter != null)
+                tableWriter.close();
         } catch (MutationsRejectedException e) {
             e.printStackTrace();
         }
@@ -534,49 +577,128 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 EdgeDefinitionConfigurationHelper edgeHelper = new EdgeDefinitionConfigurationHelper();
 
                 HashSet<String> relationships = new HashSet<>(Arrays.asList("FROM","TO"));
-                HashSet<String> collections = new HashSet<>(Arrays.asList("MY_DATA","UNKONWN"));
+                HashSet<String> collections = new HashSet<>(Arrays.asList(edgeCollection,"UNKONWN"));
 
                 final Record myRecord = record;
                 final List<EdgeDefinition> defs = new ArrayList<>();
+                Set<String> fromKeys = new HashSet<>();
+                if (!recordPathFromEdges.isEmpty()){
+                    fromKeys.addAll(recordPathFromEdges.keySet());
+                }
+                if (!recordPathFromRegexes.isEmpty())
+                    fromKeys.addAll(recordPathFromRegexes.keySet());
+                Set<String> otherKeys = new HashSet<>();
+                if (!recordPathToEdges.isEmpty())
+                    otherKeys.addAll(recordPathToEdges.keySet());
+                if (!recordPathToRegexes.isEmpty())
+                    otherKeys.addAll( recordPathToRegexes.keySet());
+                fromKeys.retainAll( otherKeys ); // intersect edge types.
 
-                recordPathForEdges.entrySet().forEach( entry -> {
 
-                    RecordPath fromRecordPath  = recordPathCache.getCompiled(entry.getValue().getKey());
-                    RecordPath toRecordPath  = recordPathCache.getCompiled(entry.getValue().getValue());
-
+                final Record recordRef = record;
+                final Set<String> fieldNames = record.getRawFieldNames();
+                getLogger().info("have " + fromKeys.size() + " definitions");
+                fromKeys.forEach( entry -> {
+                    getLogger().info("Checking " + entry);
                     EdgeDefinition def = new EdgeDefinition();
-                    def.setEdgeType(entry.getKey());
+                    def.setEdgeType(entry);
                     def.setDirection("bi"); // bi directional edges
+                    // these are the edge types.
                     List<EdgeNode> edgeNodes = new ArrayList<>();
-                    if (fromRecordPath != null) {
-                        final RecordPathResult result = fromRecordPath.evaluate(myRecord);
-                        FieldValue fv = result.getSelectedFields().findFirst().get();
-                        RecordField fromField = fv.getField();
-                        if (null != fromField){
-                            EdgeNode edgeNode = new EdgeNode();
-                            edgeNode.setCollection("MY_DATA");
-                            edgeNode.setRelationship("FROM");
-                            edgeNode.setSelector(fromField.getFieldName());
-                            edgeNodes.add(edgeNode);
+                    final Set<String> fromFields = new HashSet<>();
+                    final Set<String> toFields = new HashSet<>();
+                    for(String fromEdge : recordPathFromEdges.get(entry))
+                    {
+                        getLogger().info("from  is " + fromEdge);
+                        RecordPath fromRecordPath = recordPathCache.getCompiled(fromEdge);
+                        if (fromRecordPath != null) {
+                            final RecordPathResult result = fromRecordPath.evaluate(myRecord);
+                            FieldValue fv = result.getSelectedFields().findFirst().get();
+                            RecordField fromField = fv.getField();
+                            if (null != fromField) {
+                                EdgeNode edgeNode = new EdgeNode();
+                                edgeNode.setCollection(edgeCollection);
+                                edgeNode.setRelationship("FROM");
+                                getLogger().info("Creating edge node for " + fromField.getFieldName());
+                                edgeNode.setSelector(fromField.getFieldName());
+                                fromFields.add(fromField.getFieldName());
+                                edgeNodes.add(edgeNode);
+                            }
+                        }
+                    }
+                    for(String edgeType : fromKeys){
+
+                        // get frrom
+                        Pattern fromRegex = recordPathFromRegexes.get(edgeType);
+                        if (fromRegex != null) {
+                            getLogger().info("from regex is " + fromRegex.pattern());
+                            final Predicate<String> acceptor = fromRegex.asMatchPredicate();
+                            fieldNames.stream().filter(acceptor).forEach(
+
+                                    x -> {
+                                        if (!fromFields.contains(x)) {
+                                            EdgeNode edgeNode = new EdgeNode();
+                                            edgeNode.setCollection(edgeCollection);
+                                            edgeNode.setRelationship("FROM");
+                                            edgeNode.setSelector(x);
+                                            getLogger().info("Creating edge node for " + x);
+                                            fromFields.add(x);
+                                            edgeNodes.add(edgeNode);
+                                        }
+                                    }
+                            );
                         }
                     }
 
-                    if (toRecordPath != null) {
-                        final RecordPathResult result = toRecordPath.evaluate(myRecord);
-                        FieldValue fv = result.getSelectedFields().findFirst().get();
-                        RecordField fromField = fv.getField();
-                        if (null != fromField){
-                            EdgeNode edgeNode = new EdgeNode();
-                            edgeNode.setCollection("MY_DATA");
-                            edgeNode.setRelationship("TO");
-                            edgeNode.setSelector(fromField.getFieldName());
-                            edgeNodes.add(edgeNode);
+                    for(String toEdge : recordPathToEdges.get(entry)) {
+                        getLogger().info("toEdge  is " + toEdge);
+                        RecordPath toRecordPath = recordPathCache.getCompiled(toEdge);
+                        if (toRecordPath != null) {
+                            final RecordPathResult result = toRecordPath.evaluate(myRecord);
+                            FieldValue fv = result.getSelectedFields().findFirst().get();
+                            RecordField fromField = fv.getField();
+                            if (null != fromField) {
+                                EdgeNode edgeNode = new EdgeNode();
+                                edgeNode.setCollection(edgeCollection);
+                                edgeNode.setRelationship("TO");
+                                getLogger().info("Creating edge node for " + fromField.getFieldName());
+                                edgeNode.setSelector(fromField.getFieldName());
+                                toFields.add(fromField.getFieldName());
+                                edgeNodes.add(edgeNode);
+                            }
+                        }
+                    }
+
+
+                    for(String edgeType : fromKeys){
+
+                        // get frrom
+                        Pattern toRegex = recordPathToRegexes.get(edgeType);
+                        if (toRegex != null) {
+                            getLogger().info("to regex is " + toRegex.pattern());
+                            final Predicate<String> acceptor = toRegex.asMatchPredicate();
+                            fieldNames.stream().filter(acceptor).forEach(
+
+                                    x -> {
+                                        if (!toFields.contains(x)) {
+                                            EdgeNode edgeNode = new EdgeNode();
+                                            edgeNode.setCollection(edgeCollection);
+                                            edgeNode.setRelationship("TO");
+                                            getLogger().info("Creating edge node for " + x);
+                                            edgeNode.setSelector(x);
+                                            toFields.add(x);
+                                            edgeNodes.add(edgeNode);
+                                        }
+                                    }
+                            );
                         }
                     }
                     def.setAllPairs(edgeNodes);
-
                     defs.add(def);
                 });
+
+
+
                 edgeHelper.setEdges(defs);
                 edgeHelper.setActivityDateField("LOAD_DATE");
                 edgeHelper.setEdgeAttribute2("nifi");

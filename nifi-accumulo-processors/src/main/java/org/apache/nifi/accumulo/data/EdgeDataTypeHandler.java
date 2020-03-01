@@ -203,6 +203,8 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
             this.versioningCache = new EdgeKeyVersioningCache(conf);
         }
 
+        /// TOTO******** DISABLING
+        /**
         try {
             // Only one known edge key version so we simply grab the first one here
 
@@ -231,7 +233,7 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
             } else {
                 return; // no edges will be created but the ingest job will continue
             }
-        }
+        }*/
 
         // long term store edge definitions indexed by data type.
         /**
@@ -511,6 +513,8 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
 
         String loadDateStr = null;
 
+        log.info("Found edge definitions for " + edges.keySet().size() + " data types.");
+
         if (event.fatalError()) {
             return edgesCreated;
         } // early short circuit return
@@ -534,6 +538,8 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
 
 
         edgeDefs = edgeDefConfigs.getEdges();
+
+        log.info("Found edge definitions for " +edgeDefs.size() + " data types.");
 
         /**
          * If enabled, set the filtered context from the NormalizedContentInterface and create the script cache

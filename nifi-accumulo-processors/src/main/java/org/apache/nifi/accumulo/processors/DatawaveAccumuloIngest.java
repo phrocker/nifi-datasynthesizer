@@ -226,7 +226,8 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
 
 
     @Override
-    protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
+    protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String pdn) {
+        String propertyDescriptorName = pdn;
         if (propertyDescriptorName.startsWith("visibility.")) {
             String[] parts = propertyDescriptorName.split("\\.");
             String displayName;
@@ -259,6 +260,10 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
             if (parts.length == 2) {
                 displayName = String.format("%s FROM edge relationship", parts[1]);
                 description = String.format("Specifies the from edge relationship", parts[1]);
+            } else if ( parts.length == 3 && parts[2].equalsIgnoreCase("regex")) {
+                propertyDescriptorName = "FROM." + parts[1] + ".regex";
+                displayName = String.format("%s FROM edge regex relationship", parts[1]);
+                description = String.format("Specifies the to edge relationship", parts[1]);
             } else {
                 return null;
             }
@@ -279,6 +284,10 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
 
             if (parts.length == 2) {
                 displayName = String.format("%s TO edge relationship", parts[1]);
+                description = String.format("Specifies the to edge relationship", parts[1]);
+            } else if ( parts.length == 3 && parts[2].equalsIgnoreCase("regex")) {
+                propertyDescriptorName = "TO." + parts[1] + ".regex";
+                displayName = String.format("%s TO edge regex relationship", parts[1]);
                 description = String.format("Specifies the to edge relationship", parts[1]);
             } else {
                 return null;
