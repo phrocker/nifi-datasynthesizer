@@ -222,25 +222,25 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 if (context.getProperty("FROM." + x).isSet()) {
 
                     final String fromrel = context.getProperty("FROM." + x).getValue();
-                    getLogger().info("Have " + x + " from " + fromrel);
+                    getLogger().debug("Have " + x + " from " + fromrel);
                     Splitter.on(",").split(fromrel).forEach( rel -> {
                         recordPathFromEdges.put(x, rel);
                     });
                 }
                 else if( context.getProperty("FROM." + x + ".regex").isSet() ){
-                    getLogger().info("Have " + x + " regex from");
+                    getLogger().debug("Have " + x + " regex from");
                     recordPathFromRegexes.put(x, Pattern.compile(context.getProperty("FROM." + x + ".regex").getValue()));
                 }
 
                 if (context.getProperty("TO." + x).isSet()){
                     final String torel = context.getProperty("TO." + x).getValue();
-                    getLogger().info("Have " + x + " to " + torel);
+                    getLogger().debug("Have " + x + " to " + torel);
                     Splitter.on(",").split(torel).forEach( rel -> {
-                        recordPathFromEdges.put(x, rel);
+                        recordPathToEdges.put(x, rel);
                     });
                 }
                 else if( context.getProperty("TO." + x + ".regex").isSet() ){
-                    getLogger().info("Have " + x + " regex to");
+                    getLogger().debug("Have " + x + " regex to");
                     recordPathToRegexes.put(x, Pattern.compile(context.getProperty("TO." + x + ".regex").getValue()));
                 }
 
@@ -597,9 +597,9 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
                 final Record recordRef = record;
                 final Set<String> fieldNames = record.getRawFieldNames();
-                getLogger().info("have " + fromKeys.size() + " definitions");
+                getLogger().debug("have " + fromKeys.size() + " definitions");
                 fromKeys.forEach( entry -> {
-                    getLogger().info("Checking " + entry);
+                    getLogger().debug("Checking " + entry);
                     EdgeDefinition def = new EdgeDefinition();
                     def.setEdgeType(entry);
                     def.setDirection("bi"); // bi directional edges
@@ -609,7 +609,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                     final Set<String> toFields = new HashSet<>();
                     for(String fromEdge : recordPathFromEdges.get(entry))
                     {
-                        getLogger().info("from  is " + fromEdge);
+                        getLogger().debug("from  is " + fromEdge);
                         RecordPath fromRecordPath = recordPathCache.getCompiled(fromEdge);
                         if (fromRecordPath != null) {
                             final RecordPathResult result = fromRecordPath.evaluate(myRecord);
@@ -619,7 +619,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                                 EdgeNode edgeNode = new EdgeNode();
                                 edgeNode.setCollection(edgeCollection);
                                 edgeNode.setRelationship("FROM");
-                                getLogger().info("Creating edge node for " + fromField.getFieldName());
+                                getLogger().debug("Creating edge node for " + fromField.getFieldName());
                                 edgeNode.setSelector(fromField.getFieldName());
                                 fromFields.add(fromField.getFieldName());
                                 edgeNodes.add(edgeNode);
@@ -631,7 +631,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                         // get frrom
                         Pattern fromRegex = recordPathFromRegexes.get(edgeType);
                         if (fromRegex != null) {
-                            getLogger().info("from regex is " + fromRegex.pattern());
+                            getLogger().debug("from regex is " + fromRegex.pattern());
                             final Predicate<String> acceptor = fromRegex.asMatchPredicate();
                             fieldNames.stream().filter(acceptor).forEach(
 
@@ -641,7 +641,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                                             edgeNode.setCollection(edgeCollection);
                                             edgeNode.setRelationship("FROM");
                                             edgeNode.setSelector(x);
-                                            getLogger().info("Creating edge node for " + x);
+                                            getLogger().debug("Creating edge node for " + x);
                                             fromFields.add(x);
                                             edgeNodes.add(edgeNode);
                                         }
@@ -651,7 +651,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                     }
 
                     for(String toEdge : recordPathToEdges.get(entry)) {
-                        getLogger().info("toEdge  is " + toEdge);
+                        getLogger().debug("toEdge  is " + toEdge);
                         RecordPath toRecordPath = recordPathCache.getCompiled(toEdge);
                         if (toRecordPath != null) {
                             final RecordPathResult result = toRecordPath.evaluate(myRecord);
@@ -661,7 +661,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                                 EdgeNode edgeNode = new EdgeNode();
                                 edgeNode.setCollection(edgeCollection);
                                 edgeNode.setRelationship("TO");
-                                getLogger().info("Creating edge node for " + fromField.getFieldName());
+                                getLogger().debug("Creating edge node for " + fromField.getFieldName());
                                 edgeNode.setSelector(fromField.getFieldName());
                                 toFields.add(fromField.getFieldName());
                                 edgeNodes.add(edgeNode);
@@ -675,7 +675,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                         // get frrom
                         Pattern toRegex = recordPathToRegexes.get(edgeType);
                         if (toRegex != null) {
-                            getLogger().info("to regex is " + toRegex.pattern());
+                            getLogger().debug("to regex is " + toRegex.pattern());
                             final Predicate<String> acceptor = toRegex.asMatchPredicate();
                             fieldNames.stream().filter(acceptor).forEach(
 
@@ -684,7 +684,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                                             EdgeNode edgeNode = new EdgeNode();
                                             edgeNode.setCollection(edgeCollection);
                                             edgeNode.setRelationship("TO");
-                                            getLogger().info("Creating edge node for " + x);
+                                            getLogger().debug("Creating edge node for " + x);
                                             edgeNode.setSelector(x);
                                             toFields.add(x);
                                             edgeNodes.add(edgeNode);
@@ -773,7 +773,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         if ( processContext.getProperty(ENABLE_METADATA).asBoolean() ||
              processContext.getProperty(ENABLE_METRICS).asBoolean()) {
             try {
-                getLogger().info("Writing metadata");
+                getLogger().debug("Writing metadata");
                 mapper.writeMetadata(con);
             } catch (IOException e) {
                 e.printStackTrace();

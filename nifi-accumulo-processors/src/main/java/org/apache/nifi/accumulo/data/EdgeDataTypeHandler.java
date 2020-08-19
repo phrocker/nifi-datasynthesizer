@@ -163,7 +163,7 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
     @Override
     public void setup(TaskAttemptContext context) {
 
-        log.info("Running SpringProtobuf Edge Handler setup");
+        log.debug("Running SpringProtobuf Edge Handler setup");
         this.taskAttemptContext = context;
         setup(context.getConfiguration());
     }
@@ -211,7 +211,7 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
             // expected to be in the "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'" format
             String startDate = versioningCache.getEdgeKeyVersionDateChange().entrySet().iterator().next().getValue();
             newFormatStartDate = DateNormalizer.parseDate(startDate, DateNormalizer.FORMAT_STRINGS).getTime();
-            log.info("Edge key version change date set to: " + startDate);
+            log.debug("Edge key version change date set to: " + startDate);
         } catch (IOException e) {
             log.error("IO Exception could not get edge key version cache, will not generate edges!");
             if (setUpFailurePolicy == EdgeDataTypeHandler.FailurePolicy.FAIL_JOB) {
@@ -244,7 +244,7 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
         try {
             if (springConfigFile != null) {
                 ctx = new ClassPathXmlApplicationContext(EdgeDataTypeHandler.class.getClassLoader().getResource(springConfigFile).toString());
-                log.info("Got config on first try!");
+                log.debug("Got config on first try!");
             }
         } catch (Exception e) {
             log.error("Problem getting config for EdgeDataTypeHandler: {}", e);
@@ -347,7 +347,7 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
         } else if (!includeAllEdges) {
 
             // Else remove edges with a precondition. No conditional edge defs will be evaluated possibly resulting in fewer edges
-            log.info("Removing conditional edge definitions, possibly resulting in fewer edges being created");
+            log.debug("Removing conditional edge definitions, possibly resulting in fewer edges being created");
             removeEdgesWithPreconditions();
         }
         registry.remove(EDGE_DEFAULT_DATA_TYPE);
@@ -380,21 +380,21 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
                 }
             }
             if (blacklistedFieldCount > 0) {
-                log.info("Removed " + blacklistedFieldCount + " edge definitions because they contain blacklisted fields.");
+                log.debug("Removed " + blacklistedFieldCount + " edge definitions because they contain blacklisted fields.");
             }
         } else {
-            log.info("Blacklisting of edges is disabled.");
+            log.debug("Blacklisting of edges is disabled.");
         }
 
-        log.info("Found edge definitions for " + edges.keySet().size() + " data types.");
+        log.debug("Found edge definitions for " + edges.keySet().size() + " data types.");
 
         StringBuffer sb = new StringBuffer();
         sb.append("Data Types With Defined Edges: ");
         for (String t : edges.keySet()) {
             sb.append(t).append(" ");
         }
-        log.info(sb.toString());
-        log.info("EdgeDataTypeHandler configured.");
+        log.debug(sb.toString());
+        log.debug("EdgeDataTypeHandler configured.");
 
     }
 
@@ -513,10 +513,10 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
 
         String loadDateStr = null;
 
-        log.info("Found edge definitions for " + edges.keySet().size() + " data types.");
+        log.debug("Found edge definitions for " + edges.keySet().size() + " data types.");
 
         if (event.fatalError()) {
-            return edgesCreated;
+            //return edgesCreated;
         } // early short circuit return
 
         // get edge definitions for this event type
@@ -539,7 +539,7 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
 
         edgeDefs = edgeDefConfigs.getEdges();
 
-        log.info("Found edge definitions for " +edgeDefs.size() + " data types.");
+        log.debug("Found edge definitions for " +edgeDefs.size() + " data types.");
 
         /**
          * If enabled, set the filtered context from the NormalizedContentInterface and create the script cache
@@ -625,7 +625,7 @@ public class EdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataT
         if (useStatsLogBloomFilter) {
             activityLogBloom = BloomFilter.create(new EdgeDataTypeHandler.KeyFunnel(), 5000000);
             durationLogBloom = BloomFilter.create(new EdgeDataTypeHandler.KeyFunnel(), 5000000);
-            log.info("EdgeDataTypeHandler using bloom filters");
+            log.debug("EdgeDataTypeHandler using bloom filters");
         } else {
             activityLog = new HashSet<>();
             durationLog = new HashSet<>();

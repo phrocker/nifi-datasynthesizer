@@ -2,3 +2,7 @@
 *.iml
 target
 target/*.*
+.classpath
+.project
+.settings*
+.factorypath

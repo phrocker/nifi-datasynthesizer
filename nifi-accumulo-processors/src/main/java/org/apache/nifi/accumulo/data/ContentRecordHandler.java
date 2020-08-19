@@ -75,8 +75,8 @@ public class ContentRecordHandler<KEYIN> extends ContentIndexingColumnBasedHandl
                     termPosition = tokenHelper.getInterFieldPositionIncrement();
                 }
 
-                boolean indexField = createGlobalIndexTerms && contentHelper.isContentIndexField(indexedFieldName);
-                boolean reverseIndexField = createGlobalReverseIndexTerms && contentHelper.isReverseContentIndexField(indexedFieldName);
+                boolean indexField = createGlobalIndexTerms; // && contentHelper.isContentIndexField(indexedFieldName);
+                boolean reverseIndexField = createGlobalReverseIndexTerms;// && contentHelper.isReverseContentIndexField(indexedFieldName);
 
                 if (indexField || reverseIndexField) {
                     try {

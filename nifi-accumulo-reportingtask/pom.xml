@@ -19,7 +19,7 @@
     <parent>
 	    <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-accumulo-bundle</artifactId>
-        <version>1.11.2</version>
+        <version>1.11.4</version>
     </parent>
 
     <artifactId>nifi-accumulo-reportingtask</artifactId>
@@ -30,7 +30,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-accumulo-processors</artifactId>
-            <version>1.11.2</version>
+            <version>1.11.4</version>
             <scope>compile</scope>
         </dependency>
 	<dependency>
@@ -47,37 +47,37 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-api</artifactId>
-            <version>1.11.2</version>
+            <version>1.11.4</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-utils</artifactId>
-            <version>1.11.2</version>
+            <version>1.11.4</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-lookup-service-api</artifactId>
-            <version>1.11.2</version>
+            <version>1.11.4</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-reporting-utils</artifactId>
-            <version>1.11.2</version>
+            <version>1.11.4</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-serialization-service-api</artifactId>
-            <version>1.11.2</version>
+            <version>1.11.4</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-serialization-services</artifactId>
-            <version>1.11.2</version>
+            <version>1.11.4</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

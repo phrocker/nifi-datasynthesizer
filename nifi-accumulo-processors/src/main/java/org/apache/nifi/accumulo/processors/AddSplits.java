@@ -45,7 +45,7 @@ public class AddSplits extends DatawaveAccumuloIngest {
 
     @Override
     public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties = new ArrayList<>();
+        final List<PropertyDescriptor> properties = new ArrayList<>(baseProperties);
         properties.add(TABLE_NAME);
         properties.add(NUM_SHARD);
         properties.add(SPLIT_PREFIX);

@@ -52,6 +52,7 @@ import java.util.Set;
         @JsonSubTypes.Type(value = GammaSampler.class, name = "gamma"),
         @JsonSubTypes.Type(value = HeaderSampler.class, name = "header"),
         @JsonSubTypes.Type(value = IdSampler.class, name = "id"),
+        @JsonSubTypes.Type(value = ImeiSampler.class, name = "imei"),
         @JsonSubTypes.Type(value = IntegerSampler.class, name = "int"),
         @JsonSubTypes.Type(value = JoinSampler.class, name = "join"),
         @JsonSubTypes.Type(value = LanguageSampler.class, name = "language"),

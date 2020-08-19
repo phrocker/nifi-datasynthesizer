@@ -95,6 +95,16 @@ public class RecordIngestHelper extends CSVIngestHelper {
     }
 
     @Override
+    public boolean isContentIndexField(String field) {
+        return true;
+    }
+
+    @Override
+    public boolean isReverseContentIndexField(String field) {
+        return true;
+    }
+
+    @Override
     protected void processField(Multimap<String,String> fields, String fieldName, String fieldValue) {
 
         // Add metadata extracted from the parsers
