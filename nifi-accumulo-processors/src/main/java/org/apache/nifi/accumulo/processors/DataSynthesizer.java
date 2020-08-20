@@ -161,7 +161,7 @@ public class DataSynthesizer extends AbstractProcessor {
             }
         } catch (IOException e) {
             e.printStackTrace();
-            throw new ProcessException("Could not create schema");
+            throw new ProcessException("Could not create schema",e);
         }
         final RecordSetWriterFactory writerFactory = processContext.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
 

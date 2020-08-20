@@ -67,6 +67,36 @@ public class Util {
         return n;
     }
 
+    public static Double parseDouble(String argument) {
+        double n = Double.parseDouble(argument.replaceAll("[KMG]?$", ""));
+
+        switch (argument.charAt(argument.length() - 1)) {
+            case 'G':
+                n *= 1e9;
+                break;
+            case 'M':
+                n *= 1e6;
+                break;
+            case 'K':
+                n *= 1e3;
+                break;
+            default:
+                // no suffix leads here
+                break;
+        }
+        return n;
+    }
+
+    public static double parseDouble(JsonNode max) {
+        if (max.isTextual()) {
+            return parseDouble(max.asText());
+        } else if (max.isDouble() || max.isInt() || max.isFloat()) {
+            return max.asDouble();
+        } else {
+            throw new IllegalArgumentException("Needed an float or a string defining an float");
+        }
+    }
+
     public static int parseInteger(JsonNode max) {
         if (max.isTextual()) {
             return parseInteger(max.asText());

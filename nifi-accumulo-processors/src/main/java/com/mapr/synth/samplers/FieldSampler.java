@@ -54,6 +54,7 @@ import java.util.Set;
         @JsonSubTypes.Type(value = IdSampler.class, name = "id"),
         @JsonSubTypes.Type(value = ImeiSampler.class, name = "imei"),
         @JsonSubTypes.Type(value = IntegerSampler.class, name = "int"),
+        @JsonSubTypes.Type(value = DoubleSampler.class, name = "double"),
         @JsonSubTypes.Type(value = JoinSampler.class, name = "join"),
         @JsonSubTypes.Type(value = LanguageSampler.class, name = "language"),
         @JsonSubTypes.Type(value = LongTailSampler.class, name = "pitman_yor"),
@@ -73,6 +74,7 @@ import java.util.Set;
         @JsonSubTypes.Type(value = WordSampler.class, name = "word"),
         @JsonSubTypes.Type(value = ZipSampler.class, name = "zip"),
         @JsonSubTypes.Type(value = EmailSampler.class, name = "email"),
+        @JsonSubTypes.Type(value = EmailNameSampler.class, name = "email-name"),
         @JsonSubTypes.Type(value = UsernameSampler.class, name = "username"),
 
 })
