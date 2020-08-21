@@ -6,17 +6,22 @@ import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.TableExistsException;
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.nifi.accumulo.data.JsonWriter;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
+import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.json.JsonRecordSetWriter;
 import org.apache.nifi.json.JsonSchemaInference;
 import org.apache.nifi.json.JsonTreeRowRecordReader;
+import org.apache.nifi.logging.LogLevel;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -53,6 +58,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
 
@@ -93,7 +100,7 @@ public class DataCorrelator extends AbstractProcessor {
             .description("Number of records to create per iteration")
             .defaultValue("1000")
             .addValidator(StandardValidators.INTEGER_VALIDATOR)
-            .required(false)
+            .required(true)
             .build();
 
     static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
@@ -116,6 +123,8 @@ public class DataCorrelator extends AbstractProcessor {
         properties.add(SCHEMA_KEY);
         properties.add(RECORD_COUNT);
         properties.add(RECORD_WRITER);
+        properties.add(RECORD_READER_FACTORY);
+        properties.add(SELECT_OBJECT);
         return properties;
     }
 
@@ -127,38 +136,91 @@ public class DataCorrelator extends AbstractProcessor {
             .name("success")
             .description("Data could be synthesized")
             .build();
+    public static final Relationship REL_ORIGINAL = new Relationship.Builder()
+            .name("original")
+            .description("Original data record.")
+            .build();
     public static final Relationship REL_FAILURE = new Relationship.Builder()
             .name("failure")
             .description("Data could not be synthesized")
             .build();
 
-    
 
+            static final AllowableValue ALWAYS_SUPPRESS = new AllowableValue("always-suppress", "Always Suppress",
+            "Fields that are missing (present in the schema but not in the record), or that have a value of null, will not be written out");
+    static final AllowableValue NEVER_SUPPRESS = new AllowableValue("never-suppress", "Never Suppress",
+            "Fields that are missing (present in the schema but not in the record), or that have a value of null, will be written out as a null value");
+    static final AllowableValue SUPPRESS_MISSING = new AllowableValue("suppress-missing", "Suppress Missing Values",
+            "When a field has a value of null, it will be written out. However, if a field is defined in the schema and not present in the record, the field will not be written out.");
+
+    static final AllowableValue OUTPUT_ARRAY = new AllowableValue("output-array", "Array",
+            "Output records as a JSON array");
+    static final AllowableValue OUTPUT_ONELINE = new AllowableValue("output-oneline", "One Line Per Object",
+            "Output records with one JSON object per line, delimited by a newline character");
+
+    public static final String COMPRESSION_FORMAT_GZIP = "gzip";
+    public static final String COMPRESSION_FORMAT_BZIP2 = "bzip2";
+    public static final String COMPRESSION_FORMAT_XZ_LZMA2 = "xz-lzma2";
+    public static final String COMPRESSION_FORMAT_SNAPPY = "snappy";
+    public static final String COMPRESSION_FORMAT_SNAPPY_FRAMED = "snappy framed";
+    public static final String COMPRESSION_FORMAT_NONE = "none";
+
+    static final PropertyDescriptor SUPPRESS_NULLS = new PropertyDescriptor.Builder()
+            .name("suppress-nulls")
+            .displayName("Suppress Null Values")
+            .description("Specifies how the writer should handle a null field")
+            .allowableValues(NEVER_SUPPRESS, ALWAYS_SUPPRESS, SUPPRESS_MISSING)
+            .defaultValue(NEVER_SUPPRESS.getValue())
+            .required(true)
+            .build();
+    static final PropertyDescriptor PRETTY_PRINT_JSON = new PropertyDescriptor.Builder()
+            .name("Pretty Print JSON")
+            .description("Specifies whether or not the JSON should be pretty printed")
+            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .required(true)
+            .build();
+    static final PropertyDescriptor SELECT_OBJECT = new PropertyDescriptor.Builder()
+            .name("select-object")
+            .displayName("Select object")
+            .description("If true an object with the key name will be selected from the resulting schema you produce. Otherwise the whole object will be placed into the key")
+            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+            .allowableValues("true", "false")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .defaultValue("true")
+            .required(true)
+            .build();
+            
     @Override
     public Set<Relationship> getRelationships() {
         final Set<Relationship> rels = new HashSet<>();
         rels.add(REL_SUCCESS);
         rels.add(REL_FAILURE);
+        rels.add(REL_ORIGINAL);
         return rels;
     }
 
     @Override
     protected Collection<ValidationResult> customValidate(ValidationContext validationContext) {
         Collection<ValidationResult> set = Collections.emptySet();
+        /*
         if (!validationContext.getProperty(SCHEMA).isSet() ||
             validationContext.getProperty(SCHEMA_KEY).isSet() ){
                 set.add(new ValidationResult.Builder().explanation("Schema and Schema key must be defined").build());
-    }
+    }*/
         return set;
     }
 
-    
+   //private JsonRecordSetWriter jsonRecordSetWriter = null;
 
+    private boolean selectObject = true;
 
     @OnScheduled
     public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException, TableExistsException, AccumuloSecurityException, AccumuloException {
         recordParserFactory = context.getProperty(RECORD_READER_FACTORY)
                 .asControllerService(RecordReaderFactory.class);
+        selectObject = context.getProperty(SELECT_OBJECT).asBoolean();
     }
 
 
@@ -168,7 +230,6 @@ public class DataCorrelator extends AbstractProcessor {
         if (null == flowFile)
             return;
 
-        String definedSchema = null;
         Queue<org.codehaus.jackson.JsonNode> nodes = new ArrayDeque<>();
         final SchemaInferenceEngine<org.codehaus.jackson.JsonNode> timestampInference = new JsonSchemaInference(new TimeValueInference("yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"));
         final RecordSource<org.codehaus.jackson.JsonNode> rs = new RecordSource<org.codehaus.jackson.JsonNode>() {
@@ -186,119 +247,96 @@ public class DataCorrelator extends AbstractProcessor {
                     }
                 };
 
-        if (processContext.getProperty(SCHEMA).isSet()) {
-            definedSchema = processContext.getProperty(SCHEMA).getValue();
-        }else{
-            processContext.yield();
-        }
+        
+        final RecordSetWriterFactory writerFactory = processContext.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
 
-        String schema_key_name = "";
-        if (processContext.getProperty(SCHEMA_KEY).isSet()) {
-            schema_key_name = processContext.getProperty(SCHEMA_KEY).getValue();
-        }else{
-            processContext.yield();
-        }
+        final String definedSchema = processContext.getProperty(SCHEMA).getValue();
+        final String schema_key_name = processContext.getProperty(SCHEMA_KEY).getValue();
 
         /**
          * 
          */
 
-        final SchemaSampler mySampler = new SchemaSampler(definedSchema);
+        final SchemaSampler mySampler;
+         try{
+            mySampler = new SchemaSampler(definedSchema);
+         }catch(final IOException e){
+             throw new ProcessException(e);
+         }
          /**
           * 
 
           */
 
+          final AtomicReference<RecordSchema> writeSchema = new AtomicReference<>(null);
+          final AtomicReference<RecordSetWriter> recordWriter = new AtomicReference<>(null);
           final FlowFile newFlowFile = processSession.write(processSession.create(), (inputStream, out) -> {
             Map<String, String> obj = new HashMap<>();
             try {
-                
-            
-            //processContext.getProperty(SCHEMA).
-            try (final InputStream in = processSession.read(flowFile);
-                final RecordReader reader = recordParserFactory.createRecordReader(flowFile, in, getLogger())) {
+                        
                     
-                    Record record = reader.nextRecord();
-                    final ByteArrayOutputStream bos= new ByteArrayOutputStream();
-                    final DataOutputStream dos = new DataOutputStream(bos);
-                    JsonRecordSetWriter writer = new JsonRecordSetWriter();
-                    RecordSetWriter rsw = writer.createWriter(getLogger(), reader.getSchema(), dos)
-                    rsw.write(record);
-                    rsw.close();
+                    //processContext.getProperty(SCHEMA).
+                    try (final InputStream in = processSession.read(flowFile);
+                        final RecordReader reader = recordParserFactory.createRecordReader(flowFile, in, getLogger())) {
+                            
+                            Record record = reader.nextRecord();
 
-                    ObjectMapper objectMapper = new ObjectMapper();
-                    ObjectNode node = ObjectNode.class.cast( objectMapper.readTree(bos.toString()) );
-                    
-                    com.fasterxml.jackson.databind.JsonNode newNode = mySampler.sample();
-                    JsonNode convertedNode = objectMapper.readTree( newNode.textValue());
+                            final ByteArrayOutputStream bos= new ByteArrayOutputStream();
+                            final DataOutputStream dos = new DataOutputStream(bos);
+                            
+                            RecordSetWriter rsw = JsonWriter.createWriter(getLogger(), reader.getSchema(), dos, obj);
+                            rsw.write(record);
+                            rsw.close();
 
-                    node.put(schema_key_name,convertedNode);
+                            ObjectMapper objectMapper = new ObjectMapper();
+                            ObjectNode node = ObjectNode.class.cast( objectMapper.readTree(bos.toString()) );
+                            
+                            com.fasterxml.jackson.databind.JsonNode newNode = mySampler.sample();
+                            if (selectObject)
+                            newNode = newNode.get(schema_key_name);
+                            JsonNode convertedNode = objectMapper.readTree( newNode.toString());
 
-                    nodes.add((JsonNode)node);
+                            node.put(schema_key_name,convertedNode);
 
-                    RecordSchema schema = timestampInference.inferSchema(rs);
+                            nodes.add(node);
 
-                    final InputStream targetStream = IOUtils.toInputStream(node.asText(), StandardCharsets.UTF_8.name());
-                    JsonTreeRowRecordReader rreader = new JsonTreeRowRecordReader(targetStream, getLogger(), schema, "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
-                    Record newRecord = rreader.nextRecord();
+                            RecordSchema schema = timestampInference.inferSchema(rs);
 
-                }
-
-            
-                
-            
-
-                flowFile = processSession.write(processSession.create(), (inputStream, out) -> {
-                Map<String, String> obj = new HashMap<>();
-                try {
-                    final RecordSchema writeSchema = writerFactory.getSchema(obj, schema);
-                    try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out)) {
-
-                    IntStream.range(0, recordCount).forEach(x -> {
-
-    //                    JsonTreeReader reader = new JsonTreeReader();
-    //                  Map<String, String> variables = new HashMap<>();
-
-
-                        JsonNode created = mySampler.sample();
-                        String data = created.toString();
-
-                        try {
-                            final InputStream targetStream = IOUtils.toInputStream(data, StandardCharsets.UTF_8.name());
+                            final InputStream targetStream = IOUtils.toInputStream(node.toString(), StandardCharsets.UTF_8.name());
                             JsonTreeRowRecordReader rreader = new JsonTreeRowRecordReader(targetStream, getLogger(), schema, "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
-                            Record record = rreader.nextRecord();
+                            Record newRecord = rreader.nextRecord();
 
-                            writer.write(record);
+                            
+                
 
+                            if (null == writeSchema.get()){
+                                writeSchema.set(writerFactory.getSchema(obj, schema));
+                                recordWriter.set(writerFactory.createWriter(getLogger(), writeSchema.get(), out));
+                            }
+                            recordWriter.get().write(newRecord);
+                            //writer.write(newRecord);
+                            
 
-                        } catch (IOException e) {
-                            throw new ProcessException(e);
                         } catch (MalformedRecordException e) {
-                            throw new ProcessException(e);
-                        }
+                      // TODO Auto-generated catch block
+                      throw new ProcessException(e);
+                  }
 
-                    });
-
-                }
-                }catch (IOException e) {
+                    
+            
+            }catch (IOException e) {
                     throw new ProcessException(e);
                 } catch (SchemaNotFoundException e) {
                     throw new ProcessException(e);
                 }
-
-
-            });
-
-        }catch (IOException e) {
-                throw new ProcessException(e);
-            } catch (SchemaNotFoundException e) {
-                throw new ProcessException(e);
-            }
-
-
+                finally{
+                    if (null != recordWriter.get()){
+                        recordWriter.get().close();
+                    }
+                }
         });
-
-        processSession.transfer(flowFile, REL_SUCCESS);
+        processSession.transfer(flowFile,REL_ORIGINAL);
+        processSession.transfer(newFlowFile, REL_SUCCESS);
 
 
 
