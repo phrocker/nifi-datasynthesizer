@@ -20,6 +20,7 @@ import org.apache.log4j.Logger;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.List;
+import java.util.HashSet;
 
 public class RecordIngestHelper extends CSVIngestHelper {
 
@@ -155,8 +156,8 @@ public class RecordIngestHelper extends CSVIngestHelper {
      * Override the normalize call to enable event field value normalization
      */
     public Set<NormalizedContentInterface> normalize(NormalizedContentInterface nci) {
-/*
-        Set<NormalizedContentInterface> 
+
+        Set<NormalizedContentInterface> st = new HashSet<>();
         // normalize the event field value as required
         Type<?> n = eventFieldNormalizerHelper.getType(nci.getEventFieldName());
         try {
@@ -169,9 +170,10 @@ public class RecordIngestHelper extends CSVIngestHelper {
             log.error("Failed to normalize " + nci.getEventFieldName() + "='" + nci.getEventFieldValue() + "\'", e);
             nci.setError(e);
         }
-*/
+        st.add(nci);
+        return st;
         // now normalize the index field value as required
-        return super.normalize(nci);
+        //return super.normalize(nci);
     }
 
     @Override
