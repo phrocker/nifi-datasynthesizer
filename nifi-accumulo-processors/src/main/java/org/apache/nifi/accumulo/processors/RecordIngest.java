@@ -32,8 +32,11 @@ import org.apache.hadoop.mapreduce.lib.map.WrappedMapper;
 import org.apache.hadoop.mapreduce.task.MapContextImpl;
 import org.apache.nifi.accumulo.data.ContentRecordHandler;
 import org.apache.nifi.accumulo.data.EdgeDataTypeHandler;
+import org.apache.nifi.serialization.record.type.RecordDataType;
 import org.apache.nifi.accumulo.data.RecordContainer;
 import org.apache.nifi.accumulo.data.RecordIngestHelper;
+import org.apache.nifi.accumulo.data.SchemaNormalizers;
+import org.apache.nifi.serialization.record.DataType;
 import org.apache.nifi.annotation.behavior.*;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
@@ -727,6 +730,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 if (indexAllFields) {
                     record.getSchema().getFields().stream().forEach(x ->
                     {
+                        SchemaNormalizers.getNormalizers().setType(dataTypeName, x.getFieldName(), x.getDataType().getFieldType());
                         indexedFields.add(x.getFieldName().toUpperCase());
                         toFields.add(x.getFieldName().toUpperCase());
                     });
@@ -736,25 +740,32 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 else{
                     Splitter.on(",").split(indexFields).forEach(indexedFields::add);
                 }
-                event.addIndexedFields(indexedFields);
+                
 
 
                 final Map<String,String> securityMarkings = new HashMap<>();
                 final Multimap<String,String> map = HashMultimap.create();
                 for (String name : reader.getSchema().getFieldNames().stream().filter(p -> !fieldsToSkip.contains(p)).collect(Collectors.toList())) {
-                    String recordValue = record.getAsString(name);
-                    checkField(name, recordValue, event);
-                    map.put(name,recordValue);
-                    String visibility = produceFieldVisibility(name,flowFile,processContext);
-                    if (!StringUtils.isEmpty(visibility)){
-                        // assumes that all field with duplicate field names will hav this visibility
-                        securityMarkings.put(name,visibility);
+                    Optional<RecordField> opt = record.getSchema().getField(name);
+                    if (opt.isPresent() && opt.get().getDataType().getFieldType()==org.apache.nifi.serialization.record.RecordFieldType.RECORD){
+                        expandRecord(record,(Record)record.getValue(name),opt.get().getDataType(), map,fieldsToSkip,flowFile,processContext,securityMarkings, name,indexedFields, dataTypeName);
+                    }   
+                    else{
+                        String recordValue = record.getAsString(name);
+                        checkField(name, recordValue, event);
+                        map.put(name,recordValue);
+                        String visibility = produceFieldVisibility(name,flowFile,processContext);
+                        if (!StringUtils.isEmpty(visibility)){
+                            // assumes that all field with duplicate field names will hav this visibility
+                            securityMarkings.put(name,visibility);
+                        }
                     }
                 }
                 if (securityMarkings.size() > 0) {
                     securityMarkings.put(MarkingFunctions.Default.COLUMN_VISIBILITY, visString);
                     event.setSecurityMarkings(securityMarkings);
                 }
+                event.addIndexedFields(indexedFields);
                 event.setMap(map);
 
                 mapper.map(new LongWritable(DatawaveRecordReader.getAdder()),event,con);
@@ -784,6 +795,30 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         processSession.transfer(flowFile,REL_SUCCESS);
 
 
+
+    }
+
+    private void expandRecord(Record parentrecord,Record record,DataType recordDataType,Multimap<String,String> map, final Set<String> fieldsToSkip,FlowFile flowFile,ProcessContext processContext,final Map<String,String> securityMarkings, String name /** parent name */,ArrayList<String> indexedFields, String dataTypeName){
+
+        final org.apache.nifi.serialization.record.RecordSchema childSchema = ((RecordDataType)recordDataType).getChildSchema();
+        for (String childName : childSchema.getFieldNames().stream().filter(p -> !fieldsToSkip.contains(p)).collect(Collectors.toList())) {
+            Optional<RecordField> opt = childSchema.getField(childName);
+            if (opt.isPresent() && opt.get().getDataType().getFieldType()==org.apache.nifi.serialization.record.RecordFieldType.RECORD){
+                expandRecord(record,(Record)record.getValue(name),opt.get().getDataType(),map,fieldsToSkip,flowFile,processContext,securityMarkings, name + "_" + childName,indexedFields,dataTypeName);
+            }   
+            else{
+                String recordValue = record.getAsString(childName);
+                String fieldName = name + "_" + childName;
+                map.put(fieldName,recordValue);
+                SchemaNormalizers.getNormalizers().setType(dataTypeName, fieldName, opt.isPresent() ? opt.get().getDataType().getFieldType() : recordDataType.getFieldType());
+                indexedFields.add(fieldName.toUpperCase());
+                String visibility = produceFieldVisibility(name + "_" + childName,flowFile,processContext);
+                if (!StringUtils.isEmpty(visibility)){
+                    // assumes that all field with duplicate field names will hav this visibility
+                    securityMarkings.put(name + "_" + childName,visibility);
+                }
+            }
+        }
 
     }
 }

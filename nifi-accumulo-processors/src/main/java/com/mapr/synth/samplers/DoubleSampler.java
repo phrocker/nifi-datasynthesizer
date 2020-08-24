@@ -141,7 +141,12 @@ class DoubleSampler extends FieldSampler {
                 if (format == null) {
                     return new DoubleNode(r);
                 } else {
-                    return new TextNode(String.format(format, r));
+                    try{
+                        return new DoubleNode(Double.valueOf(String.format(format, r)));
+                        
+                    }catch(Throwable e){
+                        return new TextNode(String.format(format, r));
+                    }
                 }
             } else {
                 return new DoubleNode(dist.sample());

@@ -47,6 +47,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -57,6 +58,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -145,6 +147,11 @@ public class DataCorrelator extends AbstractProcessor {
             .description("Data could not be synthesized")
             .build();
 
+    public static final Relationship REL_CORRELATION = new Relationship.Builder()
+            .name("correlation")
+            .description("Correlation relationship")
+            .build();
+
 
             static final AllowableValue ALWAYS_SUPPRESS = new AllowableValue("always-suppress", "Always Suppress",
             "Fields that are missing (present in the schema but not in the record), or that have a value of null, will not be written out");
@@ -198,6 +205,7 @@ public class DataCorrelator extends AbstractProcessor {
         rels.add(REL_SUCCESS);
         rels.add(REL_FAILURE);
         rels.add(REL_ORIGINAL);
+        rels.add(REL_CORRELATION);
         return rels;
     }
 
@@ -229,7 +237,7 @@ public class DataCorrelator extends AbstractProcessor {
         FlowFile flowFile = processSession.get();
         if (null == flowFile)
             return;
-
+        int recordCount = processContext.getProperty(RECORD_COUNT).asInteger(); 
         Queue<org.codehaus.jackson.JsonNode> nodes = new ArrayDeque<>();
         final SchemaInferenceEngine<org.codehaus.jackson.JsonNode> timestampInference = new JsonSchemaInference(new TimeValueInference("yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"));
         final RecordSource<org.codehaus.jackson.JsonNode> rs = new RecordSource<org.codehaus.jackson.JsonNode>() {
@@ -267,7 +275,7 @@ public class DataCorrelator extends AbstractProcessor {
           * 
 
           */
-
+          Random rand = new Random();
           final AtomicReference<RecordSchema> writeSchema = new AtomicReference<>(null);
           final AtomicReference<RecordSetWriter> recordWriter = new AtomicReference<>(null);
           final FlowFile newFlowFile = processSession.write(processSession.create(), (inputStream, out) -> {
@@ -281,41 +289,69 @@ public class DataCorrelator extends AbstractProcessor {
                             
                             Record record = reader.nextRecord();
 
-                            final ByteArrayOutputStream bos= new ByteArrayOutputStream();
-                            final DataOutputStream dos = new DataOutputStream(bos);
-                            
-                            RecordSetWriter rsw = JsonWriter.createWriter(getLogger(), reader.getSchema(), dos, obj);
-                            rsw.write(record);
-                            rsw.close();
+                            do{
 
-                            ObjectMapper objectMapper = new ObjectMapper();
-                            ObjectNode node = ObjectNode.class.cast( objectMapper.readTree(bos.toString()) );
-                            
-                            com.fasterxml.jackson.databind.JsonNode newNode = mySampler.sample();
-                            if (selectObject)
-                            newNode = newNode.get(schema_key_name);
-                            JsonNode convertedNode = objectMapper.readTree( newNode.toString());
+                                for(int i=0; i < (recordCount > 1 ? rand.nextInt(5) : recordCount); i++){
 
-                            node.put(schema_key_name,convertedNode);
+                                    final ByteArrayOutputStream bos= new ByteArrayOutputStream();
+                                    final DataOutputStream dos = new DataOutputStream(bos);
+                                    
+                                    RecordSetWriter rsw = JsonWriter.createWriter(getLogger(), reader.getSchema(), dos, obj);
+                                    rsw.write(record);
+                                    rsw.close();
 
-                            nodes.add(node);
+                                    ObjectMapper objectMapper = new ObjectMapper();
+                                    ObjectNode node = ObjectNode.class.cast( objectMapper.readTree(bos.toString()) );
+                                    
+                                    com.fasterxml.jackson.databind.JsonNode newNode = mySampler.sample();
+                                    if (selectObject)
+                                    newNode = newNode.get(schema_key_name);
+                                    JsonNode convertedNode = objectMapper.readTree( newNode.toString());
 
-                            RecordSchema schema = timestampInference.inferSchema(rs);
+                                    node.put(schema_key_name,convertedNode);
 
-                            final InputStream targetStream = IOUtils.toInputStream(node.toString(), StandardCharsets.UTF_8.name());
-                            JsonTreeRowRecordReader rreader = new JsonTreeRowRecordReader(targetStream, getLogger(), schema, "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
-                            Record newRecord = rreader.nextRecord();
+                                    nodes.add(convertedNode);
 
-                            
-                
+                                    RecordSchema correlationSchema = timestampInference.inferSchema(rs);
 
-                            if (null == writeSchema.get()){
-                                writeSchema.set(writerFactory.getSchema(obj, schema));
-                                recordWriter.set(writerFactory.createWriter(getLogger(), writeSchema.get(), out));
-                            }
-                            recordWriter.get().write(newRecord);
-                            //writer.write(newRecord);
-                            
+                                    nodes.add(node);
+
+                                    RecordSchema schema = timestampInference.inferSchema(rs);
+
+                                    InputStream targetStream = IOUtils.toInputStream(node.toString(), StandardCharsets.UTF_8.name());
+                                    JsonTreeRowRecordReader rreader = new JsonTreeRowRecordReader(targetStream, getLogger(), schema, "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+                                    Record newRecord = rreader.nextRecord();
+
+                                    
+
+                                    if (null == writeSchema.get()){
+                                        writeSchema.set(writerFactory.getSchema(obj, schema));
+                                        recordWriter.set(writerFactory.createWriter(getLogger(), writeSchema.get(), out));
+                                    }
+                                    recordWriter.get().write(newRecord);
+
+                                    targetStream = IOUtils.toInputStream(convertedNode.toString(), StandardCharsets.UTF_8.name());
+                                    rreader = new JsonTreeRowRecordReader(targetStream, getLogger(), correlationSchema, "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+                                    Record correlationRecord = rreader.nextRecord();
+                        
+
+                                    FlowFile correlationFlowFile = processSession.create();
+                                    OutputStream outty = processSession.write(correlationFlowFile);
+                                    try{
+                                    RecordSetWriter wrt = writerFactory.createWriter(getLogger(), writerFactory.getSchema(obj, correlationSchema), outty);
+                                    wrt.write(correlationRecord);
+                                    wrt.close();
+                                        } catch (SchemaNotFoundException e) {
+                                            throw new ProcessException(e);
+                                        }
+
+                                    outty.close();
+
+                                    processSession.transfer(correlationFlowFile, REL_CORRELATION);
+
+                                }
+                                //writer.write(newRecord);
+                            }while ((record = reader.nextRecord()) != null);
 
                         } catch (MalformedRecordException e) {
                       // TODO Auto-generated catch block

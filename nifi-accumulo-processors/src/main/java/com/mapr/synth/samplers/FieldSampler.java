@@ -71,6 +71,8 @@ import java.util.Set;
         @JsonSubTypes.Type(value = UUIDSampler.class, name = "uuid"),
         @JsonSubTypes.Type(value = VectorSampler.class, name = "vector"),
         @JsonSubTypes.Type(value = VinSampler.class, name = "vin"),
+        @JsonSubTypes.Type(value = AutoCertification.class, name = "vehicle"),
+        @JsonSubTypes.Type(value = TollSampler.class, name = "toll"),
         @JsonSubTypes.Type(value = WordSampler.class, name = "word"),
         @JsonSubTypes.Type(value = ZipSampler.class, name = "zip"),
         @JsonSubTypes.Type(value = EmailSampler.class, name = "email"),

@@ -19,6 +19,7 @@ import org.apache.log4j.Logger;
 
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.List;
 
 public class RecordIngestHelper extends CSVIngestHelper {
 
@@ -28,7 +29,7 @@ public class RecordIngestHelper extends CSVIngestHelper {
 
     public static final String INDEX_ALL_FIELDS = ".data.index.all.fields";
     protected RecordDataTypeHelper helper = null;
-    private EventFieldNormalizerHelper eventFieldNormalizerHelper = null;
+    private RecordSchemaNormalizer eventFieldNormalizerHelper = null;
     private SimpleGroupFieldNameParser groupNormalizer = new SimpleGroupFieldNameParser(true);
 
     @Override
@@ -41,7 +42,7 @@ public class RecordIngestHelper extends CSVIngestHelper {
         indexAllFields = Boolean.valueOf(indexAllFieldsStr);
 
         // lets use an event field normalization helper
-        eventFieldNormalizerHelper = new EventFieldNormalizerHelper(config);
+        eventFieldNormalizerHelper = new RecordSchemaNormalizer(config);
     }
 
     @Override
@@ -68,6 +69,21 @@ public class RecordIngestHelper extends CSVIngestHelper {
         }
 
         return fields;
+    }
+
+    @Override
+    public boolean isDataTypeField(String fieldName) {
+        return true;
+    }
+
+    @Override
+    public List<Type<?>> getDataTypes(String fieldName){
+        return eventFieldNormalizerHelper.getDataTypes(fieldName);
+    }
+
+    @Override
+    public boolean isNormalizedField(String fieldName) {
+        return eventFieldNormalizerHelper.isNormalizedField(fieldName);
     }
 
     @Override
@@ -139,19 +155,21 @@ public class RecordIngestHelper extends CSVIngestHelper {
      * Override the normalize call to enable event field value normalization
      */
     public Set<NormalizedContentInterface> normalize(NormalizedContentInterface nci) {
-
+/*
+        Set<NormalizedContentInterface> 
         // normalize the event field value as required
         Type<?> n = eventFieldNormalizerHelper.getType(nci.getEventFieldName());
         try {
-            nci.setEventFieldValue(n.normalize(nci.getEventFieldValue()));
+            log.error(n.getClass().getCanonicalName() + " Normalized " + nci.getEventFieldValue() + " to " + n.normalize(nci.getEventFieldValue()));
+            nci.setEventFieldValue(nci.getEventFieldValue());
 
             // copy the new value into the indexed value for further normalization
-            nci.setIndexedFieldValue(nci.getEventFieldValue());
+            nci.setIndexedFieldValue(n.normalize(nci.getEventFieldValue().trim()));
         } catch (Exception e) {
-            log.error("Failed to normalize " + nci.getEventFieldName() + '=' + nci.getEventFieldValue(), e);
+            log.error("Failed to normalize " + nci.getEventFieldName() + "='" + nci.getEventFieldValue() + "\'", e);
             nci.setError(e);
         }
-
+*/
         // now normalize the index field value as required
         return super.normalize(nci);
     }

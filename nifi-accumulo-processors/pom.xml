@@ -188,5 +188,29 @@
             <artifactId>t-digest</artifactId>
             <version>3.0</version>
         </dependency>
+         <dependency>
+                <groupId>org.locationtech.geowave</groupId>
+                <artifactId>geowave-core-geotime</artifactId>
+                <version>${version.geowave}</version>
+                <exclusions>
+                    <exclusion>
+                        <artifactId>hadoop-client</artifactId>
+                        <groupId>org.apache.hadoop</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <artifactId>accumulo-minicluster</artifactId>
+                        <groupId>org.apache.accumulo</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <artifactId>commons-lang3</artifactId>
+                        <groupId>org.apache.commons</groupId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.locationtech.jts</groupId>
+                <artifactId>jts-core</artifactId>
+                <version>${version.jts}</version>
+            </dependency>
     </dependencies>
 </project>

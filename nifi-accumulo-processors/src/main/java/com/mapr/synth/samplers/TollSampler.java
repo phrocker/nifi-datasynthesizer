@@ -20,8 +20,11 @@
 package com.mapr.synth.samplers;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.DoubleNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.IntNode;
+import com.fasterxml.jackson.databind.node.LongNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Charsets;
@@ -45,7 +48,7 @@ import java.util.stream.Collectors;
 /**
  * Returns data structures containing various aspects of zip codes including location, population and such.
  */
-public class ZipSampler extends FieldSampler {
+public class TollSampler extends FieldSampler {
     private JsonNodeFactory nodeFactory = JsonNodeFactory.withExactBigDecimals(false);
 
     private Map<String, List<String>> values = Maps.newHashMap();
@@ -54,11 +57,11 @@ public class ZipSampler extends FieldSampler {
     private int zipCount;
     private double latitudeFuzz = 0;
     private double longitudeFuzz = 0;
-    private String country;
+    private String country = "usa";
     private LocationBound limits = null;
     private boolean verbose = true;
 
-    public ZipSampler() {
+    public TollSampler() {
         try {
             List<String> names = null;
             //noinspection UnstableApiUsage
@@ -216,16 +219,25 @@ public class ZipSampler extends FieldSampler {
             int i = rand.nextInt(zipCount);
             ObjectNode r = new ObjectNode(nodeFactory);
             for (String key : values.keySet()) {
-                r.set(key, new TextNode(values.get(key).get(i)));
+                if (key.equalsIgnoreCase("zip")){
+                    r.set(key, new IntNode(Integer.valueOf(values.get(key).get(i))));
+                }
+                else{
+                    r.set(key, new TextNode(values.get(key).get(i)));
+            }   
             }
 
             if (!country.isEmpty()){
                 r.set("country",new TextNode(country));
             }
 
+            long unixtime=(long) (System.currentTimeMillis()-rand.nextDouble()*60*60*24*365);
+            
+            r.set("timestamp",new LongNode(unixtime));
+
             if (latitudeFuzz > 0 || longitudeFuzz > 0) {
-                r.set("longitude", new TextNode(String.format("%.4f", r.get("longitude").asDouble() + rand.nextDouble() * longitudeFuzz)));
-                r.set("latitude", new TextNode(String.format("%.4f", r.get("latitude").asDouble() + rand.nextDouble() * latitudeFuzz)));
+                r.set("longitude", new DoubleNode(Double.valueOf(String.format("%.4f", r.get("longitude").asDouble() + rand.nextDouble() * longitudeFuzz))));
+                r.set("latitude", new DoubleNode(Double.valueOf(String.format("%.4f", r.get("latitude").asDouble() + rand.nextDouble() * latitudeFuzz))));
             }
 
             if (limits == null || limits.accept(r)) {

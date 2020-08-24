@@ -34,18 +34,27 @@ import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import com.google.common.io.LineProcessor;
 import com.google.common.io.Resources;
-
+import org.apache.mahout.math.jet.random.AbstractContinousDistribution;
+import org.apache.mahout.math.jet.random.Exponential;
+import org.apache.mahout.math.jet.random.Uniform;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
+import com.mapr.synth.FancyTimeFormatter;
+import com.mapr.synth.drive.LicensePlate;
+
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
+import java.text.ParseException;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
+import java.util.concurrent.TimeUnit;
+import org.apache.mahout.common.RandomUtils;
 /**
  * Samples somewhat realistic Vehicle Identification Numbers (VIN).
  * <p>
@@ -60,10 +69,15 @@ import java.util.regex.Pattern;
  * <li><em>verbose</em> If set to true, the result will include a textual description of aspects of the generated VIN</li>
  * </ul>
  */
-public class VinSampler extends FieldSampler {
+public class AutoCertification extends FieldSampler {
+    private static final long EPOCH = new GregorianCalendar(2013, Calendar.AUGUST, 1).getTimeInMillis();
     private static Splitter onComma = Splitter.on(",").trimResults().omitEmptyStrings();
     private static Pattern rangePattern = Pattern.compile("([12][09]\\d\\d)(-[12][09]\\d\\d)");
 
+    private AbstractContinousDistribution base =
+            new Exponential(1.0 / TimeUnit.MILLISECONDS.convert(100, TimeUnit.DAYS), RandomUtils.getRandom());
+            private FancyTimeFormatter df = new FancyTimeFormatter("yyyy-MM-dd");
+    
     private static Map<String, String> makes;
 
     private static SetMultimap<String, String> byCountry = HashMultimap.create();
@@ -105,7 +119,7 @@ public class VinSampler extends FieldSampler {
     private JsonNodeFactory nodeFactory = JsonNodeFactory.withExactBigDecimals(false);
 
     @SuppressWarnings("WeakerAccess")
-    public VinSampler() {
+    public AutoCertification() {
         legalCodes = Lists.newArrayList(makes.keySet());
         setYears("1990-2014");
     }
@@ -163,9 +177,13 @@ public class VinSampler extends FieldSampler {
         
 
         if (verbose) {
+            long end = EPOCH;
+            long t = (long) Math.rint(base.nextDouble());
+            r.set("expiration",new TextNode(df.format(new java.util.Date(end - t))));
             r.set("VIN", new TextNode(vin));
             r.set("manufacturer", new TextNode(makes.get(manufacturer)));
             r.set("year", new IntNode(year));
+            r.set("license",new TextNode(LicensePlate.generateLicensePlate()));
         } else {
             return new TextNode(vin);
         }
