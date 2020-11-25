@@ -31,6 +31,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.Resources;
+
+import org.apache.hadoop.shaded.org.apache.commons.lang3.StringUtils;
 import org.apache.mahout.common.RandomUtils;
 
 import java.io.IOException;
@@ -54,7 +56,7 @@ public class ZipSampler extends FieldSampler {
     private int zipCount;
     private double latitudeFuzz = 0;
     private double longitudeFuzz = 0;
-    private String country;
+    private String country="";
     private LocationBound limits = null;
     private boolean verbose = true;
 
@@ -219,7 +221,7 @@ public class ZipSampler extends FieldSampler {
                 r.set(key, new TextNode(values.get(key).get(i)));
             }
 
-            if (!country.isEmpty()){
+            if (!StringUtils.isEmpty(country){
                 r.set("country",new TextNode(country));
             }
 
