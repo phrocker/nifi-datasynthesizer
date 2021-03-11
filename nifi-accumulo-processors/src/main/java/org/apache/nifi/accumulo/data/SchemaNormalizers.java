@@ -1,8 +1,5 @@
 package org.apache.nifi.accumulo.data;
 
-import java.util.concurrent.ConcurrentHashMap;
-
-import org.apache.hadoop.conf.Configuration;
 import org.apache.nifi.serialization.record.RecordFieldType;
 
 import datawave.data.type.Type;
@@ -99,15 +96,8 @@ public synchronized Type<?> getType(String type, String fieldName) {
         else{
             baseType = null;
         }
-        if (null == baseType){
-            log.info("baseType is null ({} for {})",schemaType,fieldName);
-        }else{
-            log.info("{}} is {}",fieldName,baseType.getClass().getCanonicalName());
-        }
     }
-    else{
-        log.info("{}} is {}",fieldName,baseType.getClass().getCanonicalName());
-    }
+
     
     Map<String,Type<?>> om = typeMap.get(type);
     if (null == om){

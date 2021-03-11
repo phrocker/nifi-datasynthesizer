@@ -117,7 +117,7 @@ public abstract class DatawaveAccumuloIngest extends BaseAccumuloProcessor {
             .name("Enable Metrics")
             .description("Enables datawave ingest metrics")
             .required(false)
-            .defaultValue("True").allowableValues("True","False")
+            .defaultValue("False").allowableValues("True","False")
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
             .build();
 

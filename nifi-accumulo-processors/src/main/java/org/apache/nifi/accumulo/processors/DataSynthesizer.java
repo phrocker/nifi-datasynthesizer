@@ -30,6 +30,7 @@ import org.apache.nifi.serialization.MalformedRecordException;
 import org.apache.nifi.serialization.RecordSetWriter;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.record.Record;
+import org.apache.nifi.record.path.validation.RecordPathPropertyNameValidator;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.codehaus.jackson.map.ObjectMapper;
 
@@ -77,6 +78,8 @@ public class DataSynthesizer extends AbstractProcessor {
             .identifiesControllerService(RecordSetWriterFactory.class)
             .required(true)
             .build();
+
+            
 
     public DataSynthesizer(){
 

@@ -18,3 +18,4 @@ org.apache.nifi.accumulo.processors.DataSynthesizer
 org.apache.nifi.accumulo.processors.DataCorrelator
 org.apache.nifi.accumulo.processors.RecordIngest
 org.apache.nifi.accumulo.processors.AddSplits
+org.apache.nifi.accumulo.processors.RemoveRecordPath

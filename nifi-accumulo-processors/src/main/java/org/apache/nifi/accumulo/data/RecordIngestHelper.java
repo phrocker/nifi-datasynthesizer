@@ -161,7 +161,6 @@ public class RecordIngestHelper extends CSVIngestHelper {
         // normalize the event field value as required
         Type<?> n = eventFieldNormalizerHelper.getType(nci.getEventFieldName());
         try {
-            log.error(n.getClass().getCanonicalName() + " Normalized " + nci.getEventFieldValue() + " to " + n.normalize(nci.getEventFieldValue()));
             nci.setEventFieldValue(nci.getEventFieldValue());
 
             // copy the new value into the indexed value for further normalization

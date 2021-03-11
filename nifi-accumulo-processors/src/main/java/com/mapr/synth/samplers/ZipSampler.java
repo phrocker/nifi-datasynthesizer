@@ -31,8 +31,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.Resources;
-
-import org.apache.hadoop.shaded.org.apache.commons.lang3.StringUtils;
+import org.apache.nifi.util.StringUtils;
 import org.apache.mahout.common.RandomUtils;
 
 import java.io.IOException;
@@ -221,7 +220,7 @@ public class ZipSampler extends FieldSampler {
                 r.set(key, new TextNode(values.get(key).get(i)));
             }
 
-            if (!StringUtils.isEmpty(country){
+            if (!StringUtils.isEmpty(country)){
                 r.set("country",new TextNode(country));
             }
 

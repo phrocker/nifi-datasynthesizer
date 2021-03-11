@@ -26,6 +26,8 @@ import org.apache.accumulo.core.client.*;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.LongWritable;
+import org.apache.nifi.serialization.record.type.ArrayDataType;
+import org.apache.nifi.serialization.record.type.ChoiceDataType;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.lib.map.WrappedMapper;
@@ -58,7 +60,7 @@ import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.util.StringUtils;
-import org.apache.nifi.util.Tuple;
+import org.apache.nifi.serialization.record.util.DataTypeUtils;
 import scala.annotation.meta.field;
 
 import java.io.IOException;
@@ -139,6 +141,30 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
+    protected static final PropertyDescriptor POSTFIX_FIELD_NAMES = new PropertyDescriptor.Builder()
+            .name("Postfix Field Names")
+            .description("Determines if we post fix the array numbers or numerics. ")
+            .required(false)
+            .defaultValue("False").allowableValues("True","False")
+            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor POSTFIX_SEPARATOR = new PropertyDescriptor.Builder()
+            .name("Postfix Separator")
+            .description("Separator between sub element names")
+            .required(false)
+            .defaultValue("_")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
+    protected static final PropertyDescriptor GROUPING_SEPARATOR = new PropertyDescriptor.Builder()
+            .name("Grouping Separator")
+            .description("Separator between grouping contexts")
+            .required(false)
+            .defaultValue(".")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .build();
+
     protected final TreeMap<String,String> uidOverrideFields = new TreeMap<>();
 
     private RecordReaderFactory recordParserFactory;
@@ -162,12 +188,18 @@ public class RecordIngest extends DatawaveAccumuloIngest {
     private Boolean enableGraph = false;
     private String edgeTypes;
     private String edgeCollection;
+    private boolean postFixFieldNames=false;
+    private String postFixSeparator= "_";
+    private String groupingSeparator = ".";
 
     @Override
     public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         final List<PropertyDescriptor> properties = super.getSupportedPropertyDescriptors();
         properties.add(RECORD_READER_FACTORY);
         properties.add(MEMORY_SIZE);
+        properties.add(POSTFIX_FIELD_NAMES);
+        properties.add(POSTFIX_SEPARATOR);
+        properties.add(GROUPING_SEPARATOR);
         properties.add(INGEST_HELPER);
         properties.add(TABLE_NAME);
         properties.add(CREATE_TABLE);
@@ -216,6 +248,9 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
         helperClassStr = context.getProperty(INGEST_HELPER).getValue();
 
+        postFixSeparator = context.getProperty(POSTFIX_SEPARATOR).getValue();
+        groupingSeparator = context.getProperty(GROUPING_SEPARATOR).getValue();
+
         conf = new Configuration();
 
 
@@ -225,25 +260,21 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 if (context.getProperty("FROM." + x).isSet()) {
 
                     final String fromrel = context.getProperty("FROM." + x).getValue();
-                    getLogger().debug("Have " + x + " from " + fromrel);
                     Splitter.on(",").split(fromrel).forEach( rel -> {
                         recordPathFromEdges.put(x, rel);
                     });
                 }
                 else if( context.getProperty("FROM." + x + ".regex").isSet() ){
-                    getLogger().debug("Have " + x + " regex from");
                     recordPathFromRegexes.put(x, Pattern.compile(context.getProperty("FROM." + x + ".regex").getValue()));
                 }
 
                 if (context.getProperty("TO." + x).isSet()){
                     final String torel = context.getProperty("TO." + x).getValue();
-                    getLogger().debug("Have " + x + " to " + torel);
                     Splitter.on(",").split(torel).forEach( rel -> {
                         recordPathToEdges.put(x, rel);
                     });
                 }
                 else if( context.getProperty("TO." + x + ".regex").isSet() ){
-                    getLogger().debug("Have " + x + " regex to");
                     recordPathToRegexes.put(x, Pattern.compile(context.getProperty("TO." + x + ".regex").getValue()));
                 }
 
@@ -253,6 +284,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         }
 
         final Double maxBytes = context.getProperty(MEMORY_SIZE).asDataSize(DataUnit.B);
+        postFixFieldNames = context.getProperty(POSTFIX_FIELD_NAMES).asBoolean();
         this.client = getClient(context);
         BatchWriterConfig writerConfig = new BatchWriterConfig();
         writerConfig.setMaxWriteThreads(context.getProperty(THREADS).asInteger());
@@ -287,12 +319,12 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         final boolean enableMetadata = context.getProperty(ENABLE_METADATA).asBoolean();
 
         if (enableMetadata) {
-            conf.set("metadata.table.name", "DatawaveMetadata");
+            conf.set("metadata.table.name", "datawave.metadata");
             if (createTables){
-                if (!client.tableOperations().exists("DatawaveMetadata"))
-                    client.tableOperations().create("DatawaveMetadata");
-                if (!client.tableOperations().exists("DatawaveMetrics"))
-                    client.tableOperations().create("DatawaveMetrics");
+                if (!client.tableOperations().exists("datawave.metadata"))
+                    client.tableOperations().create("datawave.metadata");
+                if (!client.tableOperations().exists("datawave.metrics"))
+                    client.tableOperations().create("datawave.metrics");
             }
         }
 
@@ -306,7 +338,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             conf.set(MetricsConfiguration.ENABLED_LABELS_CONFIG, metricsLabels);
             conf.set(MetricsConfiguration.FIELDS_CONFIG, metricsFields);
             conf.set(MetricsConfiguration.RECEIVERS_CONFIG,receiver);
-            conf.set(MetricsConfiguration.METRICS_TABLE_CONFIG, "DatawaveMetrics");
+            conf.set(MetricsConfiguration.METRICS_TABLE_CONFIG, "datawave.metrics");
             conf.set(MetricsConfiguration.NUM_SHARDS_CONFIG, shards.toString());
 
         }
@@ -331,20 +363,6 @@ public class RecordIngest extends DatawaveAccumuloIngest {
             conf.set(ProtobufEdgeDataTypeHandler.ACTIVITY_DATE_FUTURE_DELTA,"86400000");
             conf.set(ProtobufEdgeDataTypeHandler.ACTIVITY_DATE_PAST_DELTA,"315360000000");
             conf.set(ProtobufEdgeDataTypeHandler.EVALUATE_PRECONDITIONS,"false");
-
-
-            /**
-             *
-             *         setUpFailurePolicy = FailurePolicy.valueOf(conf.get(EDGE_SETUP_FAILURE_POLICY));
-             *         processFailurePolicy = FailurePolicy.valueOf(conf.get(EDGE_PROCESS_FAILURE_POLICY));
-             *
-             *         String springConfigFile = ConfigurationHelper.isNull(conf, EDGE_SPRING_CONFIG, String.class);
-             *         futureDelta = ConfigurationHelper.isNull(conf, ACTIVITY_DATE_FUTURE_DELTA, Long.class);
-             *         pastDelta = ConfigurationHelper.isNull(conf, ACTIVITY_DATE_PAST_DELTA, Long.class);
-             *
-             *         evaluatePreconditions = Boolean.parseBoolean(conf.get(EVALUATE_PRECONDITIONS));
-             *         includeAllEdges = Boolean.parseBoolean(conf.get(INCLUDE_ALL_EDGES));
-             */
         }
 
         conf.set("shard.global.index.table.name", indexTable);
@@ -531,11 +549,9 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         }
 
         final String recordPathText = processContext.getProperty(VISIBILITY_PATH).getValue();
-  //      final String fromEdgePathText = processContext.getProperty(FROM_EDGE_PATH).getValue();
-//        final String toEdgePathText = processContext.getProperty(TO_EDGE_PATH).getValue();
         final String defaultVisibility = processContext.getProperty(DEFAULT_VISIBILITY).isSet() ? processContext.getProperty(DEFAULT_VISIBILITY).getValue() : "";
 
-        RecordPath recordPath = null; // ,fromEdgePath=null,toEdgePath=null;
+        RecordPath recordPath = null;
         if (recordPathCache == null){
             recordPathCache = new RecordPathCache(25);
         }
@@ -600,9 +616,7 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
                 final Record recordRef = record;
                 final Set<String> fieldNames = record.getRawFieldNames();
-                getLogger().debug("have " + fromKeys.size() + " definitions");
                 fromKeys.forEach( entry -> {
-                    getLogger().debug("Checking " + entry);
                     EdgeDefinition def = new EdgeDefinition();
                     def.setEdgeType(entry);
                     def.setDirection("bi"); // bi directional edges
@@ -612,7 +626,6 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                     final Set<String> toFields = new HashSet<>();
                     for(String fromEdge : recordPathFromEdges.get(entry))
                     {
-                        getLogger().debug("from  is " + fromEdge);
                         RecordPath fromRecordPath = recordPathCache.getCompiled(fromEdge);
                         if (fromRecordPath != null) {
                             final RecordPathResult result = fromRecordPath.evaluate(myRecord);
@@ -622,7 +635,6 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                                 EdgeNode edgeNode = new EdgeNode();
                                 edgeNode.setCollection(edgeCollection);
                                 edgeNode.setRelationship("FROM");
-                                getLogger().debug("Creating edge node for " + fromField.getFieldName());
                                 edgeNode.setSelector(fromField.getFieldName());
                                 fromFields.add(fromField.getFieldName());
                                 edgeNodes.add(edgeNode);
@@ -634,7 +646,6 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                         // get frrom
                         Pattern fromRegex = recordPathFromRegexes.get(edgeType);
                         if (fromRegex != null) {
-                            getLogger().debug("from regex is " + fromRegex.pattern());
                             final Predicate<String> acceptor = fromRegex.asMatchPredicate();
                             fieldNames.stream().filter(acceptor).forEach(
 
@@ -644,7 +655,6 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                                             edgeNode.setCollection(edgeCollection);
                                             edgeNode.setRelationship("FROM");
                                             edgeNode.setSelector(x);
-                                            getLogger().debug("Creating edge node for " + x);
                                             fromFields.add(x);
                                             edgeNodes.add(edgeNode);
                                         }
@@ -654,7 +664,6 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                     }
 
                     for(String toEdge : recordPathToEdges.get(entry)) {
-                        getLogger().debug("toEdge  is " + toEdge);
                         RecordPath toRecordPath = recordPathCache.getCompiled(toEdge);
                         if (toRecordPath != null) {
                             final RecordPathResult result = toRecordPath.evaluate(myRecord);
@@ -664,7 +673,6 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                                 EdgeNode edgeNode = new EdgeNode();
                                 edgeNode.setCollection(edgeCollection);
                                 edgeNode.setRelationship("TO");
-                                getLogger().debug("Creating edge node for " + fromField.getFieldName());
                                 edgeNode.setSelector(fromField.getFieldName());
                                 toFields.add(fromField.getFieldName());
                                 edgeNodes.add(edgeNode);
@@ -678,7 +686,6 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                         // get frrom
                         Pattern toRegex = recordPathToRegexes.get(edgeType);
                         if (toRegex != null) {
-                            getLogger().debug("to regex is " + toRegex.pattern());
                             final Predicate<String> acceptor = toRegex.asMatchPredicate();
                             fieldNames.stream().filter(acceptor).forEach(
 
@@ -687,7 +694,6 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                                             EdgeNode edgeNode = new EdgeNode();
                                             edgeNode.setCollection(edgeCollection);
                                             edgeNode.setRelationship("TO");
-                                            getLogger().debug("Creating edge node for " + x);
                                             edgeNode.setSelector(x);
                                             toFields.add(x);
                                             edgeNodes.add(edgeNode);
@@ -742,22 +748,86 @@ public class RecordIngest extends DatawaveAccumuloIngest {
                 }
                 
 
-
+                
                 final Map<String,String> securityMarkings = new HashMap<>();
                 final Multimap<String,String> map = HashMultimap.create();
                 for (String name : reader.getSchema().getFieldNames().stream().filter(p -> !fieldsToSkip.contains(p)).collect(Collectors.toList())) {
                     Optional<RecordField> opt = record.getSchema().getField(name);
                     if (opt.isPresent() && opt.get().getDataType().getFieldType()==org.apache.nifi.serialization.record.RecordFieldType.RECORD){
-                        expandRecord(record,(Record)record.getValue(name),opt.get().getDataType(), map,fieldsToSkip,flowFile,processContext,securityMarkings, name,indexedFields, dataTypeName);
+                        ArrayList<String> nameQueue = new ArrayList<>();
+                        expandRecord(record,(Record)record.getValue(name),opt.get().getDataType(), map,fieldsToSkip,flowFile,processContext,securityMarkings, name,indexedFields, dataTypeName, postFixFieldNames, nameQueue);
                     }   
+                    else if (opt.isPresent() && opt.get().getDataType().getFieldType()==org.apache.nifi.serialization.record.RecordFieldType.ARRAY){
+                        Object coercedValue = DataTypeUtils.convertType(record.getValue(name), opt.get().getDataType(), name);
+                        final ArrayDataType arrayDataType = (ArrayDataType) opt.get().getDataType();
+                        final DataType elementType = arrayDataType.getElementType();
+                        if (coercedValue instanceof Object[]) {
+                            
+                            final Object[] values = (Object[]) coercedValue;
+                            for (int i = 0; i < values.length; i++) {
+                                ArrayList<String> nameQueue = new ArrayList<>();
+                                String myName = name;
+                                if (postFixFieldNames){
+                                    nameQueue.add(Integer.toString(i));
+                                }
+                                else{
+                                    myName += groupingSeparator + i;
+                                }
+                                final Object element = values[i];
+                                expandRecord(record,element,elementType,map,fieldsToSkip,flowFile,processContext,securityMarkings, myName,indexedFields,dataTypeName, postFixFieldNames, nameQueue);
+                            }
+                        }
+                        else{
+                            ArrayList<String> nameQueue = new ArrayList<>();
+                            String myName = name;
+                            if (postFixFieldNames){
+                                nameQueue.add("0");
+                            }
+                            else{
+                                myName += groupingSeparator + "0";
+                            }
+                            expandRecord(record,coercedValue,elementType,map,fieldsToSkip,flowFile,processContext,securityMarkings, myName,indexedFields,dataTypeName,postFixFieldNames,nameQueue);
+                        }
+                        
+                    }
+                    else if (opt.isPresent() && opt.get().getDataType().getFieldType()==org.apache.nifi.serialization.record.RecordFieldType.CHOICE){
+                        final DataType chosenDataType = DataTypeUtils.chooseDataType(record.getValue(name), (ChoiceDataType) opt.get().getDataType());
+                            Object coercedValue = DataTypeUtils.convertType(record.getValue(name), chosenDataType, name);
+
+                
+        
+                        if (coercedValue instanceof Object[]) {
+                            final ArrayDataType arrayDataType = (ArrayDataType) chosenDataType;
+                            final DataType elementType = arrayDataType.getElementType();
+                            final Object[] values = (Object[]) coercedValue;
+                            for (int i = 0; i < values.length; i++) {
+                                ArrayList<String> nameQueue = new ArrayList<>();
+                                String myName = name;
+                                if (postFixFieldNames){
+                                    nameQueue.add(Integer.toString(i));
+                                }
+                                else{
+                                    myName += groupingSeparator + i;
+                                }
+                                final Object element = values[i];
+                                expandRecord(record,element,elementType,map,fieldsToSkip,flowFile,processContext,securityMarkings, myName,indexedFields,dataTypeName, postFixFieldNames, nameQueue);
+                            }
+                        }
+                        else{
+                            setRecord(Optional.of(opt.get().getDataType().getFieldType()),record,name,coercedValue.toString(), map,opt.get().getDataType(),flowFile,processContext,securityMarkings,indexedFields,dataTypeName);
+                        }
+                        
+                    }
                     else{
+
+                        String fieldName = name.toUpperCase();
                         String recordValue = record.getAsString(name);
                         checkField(name, recordValue, event);
-                        map.put(name,recordValue);
-                        String visibility = produceFieldVisibility(name,flowFile,processContext);
+                        map.put(fieldName,recordValue);
+                        String visibility = produceFieldVisibility(fieldName,flowFile,processContext);
                         if (!StringUtils.isEmpty(visibility)){
                             // assumes that all field with duplicate field names will hav this visibility
-                            securityMarkings.put(name,visibility);
+                            securityMarkings.put(fieldName,visibility);
                         }
                     }
                 }
@@ -784,7 +854,6 @@ public class RecordIngest extends DatawaveAccumuloIngest {
         if ( processContext.getProperty(ENABLE_METADATA).asBoolean() ||
              processContext.getProperty(ENABLE_METRICS).asBoolean()) {
             try {
-                getLogger().debug("Writing metadata");
                 mapper.writeMetadata(con);
             } catch (IOException e) {
                 e.printStackTrace();
@@ -798,28 +867,209 @@ public class RecordIngest extends DatawaveAccumuloIngest {
 
     }
 
-    private void expandRecord(Record parentrecord,Record record,DataType recordDataType,Multimap<String,String> map, final Set<String> fieldsToSkip,FlowFile flowFile,ProcessContext processContext,final Map<String,String> securityMarkings, String name /** parent name */,ArrayList<String> indexedFields, String dataTypeName){
-
-        final org.apache.nifi.serialization.record.RecordSchema childSchema = ((RecordDataType)recordDataType).getChildSchema();
-        for (String childName : childSchema.getFieldNames().stream().filter(p -> !fieldsToSkip.contains(p)).collect(Collectors.toList())) {
-            Optional<RecordField> opt = childSchema.getField(childName);
-            if (opt.isPresent() && opt.get().getDataType().getFieldType()==org.apache.nifi.serialization.record.RecordFieldType.RECORD){
-                expandRecord(record,(Record)record.getValue(name),opt.get().getDataType(),map,fieldsToSkip,flowFile,processContext,securityMarkings, name + "_" + childName,indexedFields,dataTypeName);
-            }   
-            else{
-                String recordValue = record.getAsString(childName);
-                String fieldName = name + "_" + childName;
-                map.put(fieldName,recordValue);
-                SchemaNormalizers.getNormalizers().setType(dataTypeName, fieldName, opt.isPresent() ? opt.get().getDataType().getFieldType() : recordDataType.getFieldType());
-                indexedFields.add(fieldName.toUpperCase());
-                String visibility = produceFieldVisibility(name + "_" + childName,flowFile,processContext);
-                if (!StringUtils.isEmpty(visibility)){
-                    // assumes that all field with duplicate field names will hav this visibility
-                    securityMarkings.put(name + "_" + childName,visibility);
-                }
-            }
+    private void setRecord(Optional<org.apache.nifi.serialization.record.RecordFieldType > opt ,Record record, String rawFieldName,
+                            String recordValue,
+                            Multimap<String,String> map,
+                            DataType recordDataType,
+                            FlowFile flowFile,
+                            ProcessContext processContext,
+                            final Map<String,String> securityMarkings, 
+                            ArrayList<String> indexedFields, 
+                            String dataTypeName){
+        String fieldName = rawFieldName.toUpperCase();
+        map.put(fieldName,recordValue);
+        SchemaNormalizers.getNormalizers().setType(dataTypeName, fieldName, opt.isPresent() ? opt.get(): recordDataType.getFieldType());
+        indexedFields.add(fieldName.toUpperCase());
+        String visibility = produceFieldVisibility(fieldName,flowFile,processContext);
+        if (!StringUtils.isEmpty(visibility)){
+            // assumes that all field with duplicate field names will hav this visibility
+            securityMarkings.put(fieldName,visibility);
         }
-
     }
+
+    private void expandRecord(Record parentrecord,
+                            Object record,DataType recordDataType,
+                            Multimap<String,String> map,
+                             final Set<String> fieldsToSkip,
+                             FlowFile flowFile,
+                             ProcessContext processContext,
+                             final Map<String,String> securityMarkings,
+                             String name /** parent name */,
+                             ArrayList<String> indexedFields, 
+                             String dataTypeName, 
+                             boolean postFix, 
+                             ArrayList<String> nameQueue){
+        switch (recordDataType.getFieldType()) {
+            case RECORD:
+                    final org.apache.nifi.serialization.record.RecordSchema childSchema = ((RecordDataType)recordDataType).getChildSchema();
+                    final Record rec = (Record) record;
+                    for (String childName : childSchema.getFieldNames().stream().filter(p -> !fieldsToSkip.contains(p)).collect(Collectors.toList())) {
+                        Optional<RecordField> opt = childSchema.getField(childName);
+                        if (opt.isPresent() && opt.get().getDataType().getFieldType()==org.apache.nifi.serialization.record.RecordFieldType.RECORD){
+                            
+                            expandRecord(rec,rec.getValue(childName),opt.get().getDataType(),map,fieldsToSkip,flowFile,processContext,securityMarkings, name + postFixSeparator + childName,indexedFields,dataTypeName,postFix,nameQueue);
+                        }
+                        else if (opt.isPresent() && opt.get().getDataType().getFieldType()==org.apache.nifi.serialization.record.RecordFieldType.ARRAY){
+                            Object coercedValue = DataTypeUtils.convertType(rec.getValue(childName), opt.get().getDataType(), childName);
+                            final ArrayDataType arrayDataType = (ArrayDataType) opt.get().getDataType();
+                            final DataType elementType = arrayDataType.getElementType();
+                            if (coercedValue instanceof Object[]) {
+                                
+                                
+                                final Object[] values = (Object[]) coercedValue;
+                                for (int i = 0; i < values.length; i++) {
+                                    String myName = name + postFixSeparator + childName;
+                                    if (postFix && null != nameQueue){
+                                        nameQueue.add(Integer.toString(i));
+                                    }
+                                    else{
+                                        myName += groupingSeparator + i;
+                                    }
+                                    final Object element = values[i];
+                                    expandRecord(rec,element,elementType,map,fieldsToSkip,flowFile,processContext,securityMarkings, myName,indexedFields,dataTypeName,postFix,nameQueue);
+                                }
+                            }
+                            else{
+                                String myName = name + postFixSeparator + childName;
+                                if (postFix && null != nameQueue){
+                                    nameQueue.add("0");
+                                }
+                                else{
+                                    myName += groupingSeparator + "0";
+                                }
+                                expandRecord(rec,coercedValue,elementType,map,fieldsToSkip,flowFile,processContext,securityMarkings, myName,indexedFields,dataTypeName,postFix,nameQueue);
+                            }
+                            
+                        }
+                        else if (opt.isPresent() && opt.get().getDataType().getFieldType()==org.apache.nifi.serialization.record.RecordFieldType.CHOICE){
+                            final DataType chosenDataType = DataTypeUtils.chooseDataType(rec.getValue(name), (ChoiceDataType) opt.get().getDataType());
+                            Object coercedValue = DataTypeUtils.convertType(rec.getValue(name), chosenDataType, name);
+            
+                            if (coercedValue instanceof Object[]) {
+                                final Object[] values = (Object[]) coercedValue;
+                                for (int i = 0; i < values.length; i++) {
+                                    String myName = name + postFixSeparator + childName;
+                                    if (postFix && null != nameQueue){
+                                        nameQueue.add(Integer.toString(i));
+                                    }
+                                    else{
+                                        myName += groupingSeparator + i;
+                                    }
+                                    final Object element = values[i];
+                                    expandRecord(rec,element,chosenDataType,map,fieldsToSkip,flowFile,processContext,securityMarkings, myName,indexedFields,dataTypeName,postFix,nameQueue);
+                                }
+                            }
+                            else{
+                                if (null != chosenDataType){
+                                    /**
+                                     * Field does not exist. 
+                                     */
+                                    String myName = name + postFixSeparator + childName;
+                                    if (postFix && null != nameQueue){
+                                        nameQueue.add("0");
+                                    }
+                                    else{
+                                        myName += groupingSeparator + "0";
+                                    }
+                                    expandRecord(rec,coercedValue,chosenDataType,map,fieldsToSkip,flowFile,processContext,securityMarkings, myName,indexedFields,dataTypeName,postFix,nameQueue);
+                                }
+                            }
+                            
+                        }
+                        else{
+                            /**
+                             * The schema dictates that a field should exist, but it has no value here. 
+                             */
+                            if (null != rec && null != rec.getAsString(childName)){
+                                StringBuilder myName = new StringBuilder(name);
+                                myName.append(postFixSeparator).append(childName);
+                                if (postFix && null != nameQueue){
+                                    for(final String nmi : nameQueue){
+                                        myName.append(groupingSeparator + nmi);
+                                    }
+                                }
+                                Optional<org.apache.nifi.serialization.record.RecordFieldType > op = Optional.empty();
+                                if (opt.isPresent()){
+                                    op = Optional.of(opt.get().getDataType().getFieldType());
+                                }
+                                setRecord(op,rec,myName.toString(),rec.getAsString(childName), map,recordDataType,flowFile,processContext,securityMarkings,indexedFields,dataTypeName);
+                            }
+                        }
+                        }   
+                break;
+            case ARRAY:
+                if (record instanceof Object[]) {
+                    final ArrayDataType arrayDataType = (ArrayDataType) recordDataType;
+                    final DataType elementType = arrayDataType.getElementType();
+                    final Object[] values = (Object[]) record;
+                    for (int i = 0; i < values.length; i++) {
+                        String myName = name;
+                        if (postFix && null != nameQueue){
+                            nameQueue.add(Integer.toString(i));
+                        }
+                        else{
+                            myName += groupingSeparator + i;
+                        }
+                        final Object element = values[i];
+                        expandRecord(parentrecord,element,elementType,map,fieldsToSkip,flowFile,processContext,securityMarkings, myName,indexedFields,dataTypeName,postFix,nameQueue);
+                    }
+                }
+                else{
+                    StringBuilder myName = new StringBuilder(name);
+                    if (postFix && null != nameQueue){
+                        for(final String nmi : nameQueue){
+                            myName.append(groupingSeparator + nmi );
+                        }
+                    }
+                    if (null != record){
+                        setRecord(Optional.of(recordDataType.getFieldType()),null,myName.toString(),record.toString(), map,recordDataType,flowFile,processContext,securityMarkings,indexedFields,dataTypeName);
+                    }
+                }
+                break;
+            case CHOICE:
+                final DataType chosenDataType = DataTypeUtils.chooseDataType(record, (ChoiceDataType) recordDataType);
+                Object coercedValue = DataTypeUtils.convertType(record, chosenDataType, name);
+                if (coercedValue instanceof Object[]) {
+                    final ArrayDataType arrayDataType = (ArrayDataType) chosenDataType;
+                    final DataType elementType = arrayDataType.getElementType();
+                    final Object[] values = (Object[]) coercedValue;
+                    for (int i = 0; i < values.length; i++) {
+                        String myName = name;
+                        if (postFix && null != nameQueue){
+                            nameQueue.add(Integer.toString(i));
+                        }
+                        else{
+                            myName += groupingSeparator + i;
+                        }
+                        final Object element = values[i];
+                        expandRecord(parentrecord,element,elementType,map,fieldsToSkip,flowFile,processContext,securityMarkings, myName,indexedFields,dataTypeName,postFix,nameQueue);
+                    }
+                }
+                else{
+                    StringBuilder myName = new StringBuilder(name);
+                    if (postFix && null != nameQueue){
+                        for(final String nmi : nameQueue){
+                            myName.append(groupingSeparator + nmi );
+                        }
+                    }
+                    if (null != record){
+                        setRecord(Optional.of(recordDataType.getFieldType()),null,myName.toString(),record.toString(), map,recordDataType,flowFile,processContext,securityMarkings,indexedFields,dataTypeName);
+                    }
+                }
+                break;
+            default:
+                StringBuilder myName = new StringBuilder(name);
+                    if (postFix && null != nameQueue){
+                        for(final String nmi : nameQueue){
+                            myName.append(groupingSeparator + nmi );
+                        }
+                    }
+                if (null != record){
+                    setRecord(Optional.of(recordDataType.getFieldType()),null,myName.toString(),record.toString(), map,recordDataType,flowFile,processContext,securityMarkings,indexedFields,dataTypeName);
+                }
+                
+            }
+    }
+    
 }
 

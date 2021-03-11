@@ -28,6 +28,7 @@ public class AddSplits extends DatawaveAccumuloIngest {
             .name("split-prefix")
             .displayName("Split prefix")
             .description("Split prefix")
+            .defaultValue("${now():format('yyyyMMdd')}")
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .required(true)
@@ -94,7 +95,9 @@ public class AddSplits extends DatawaveAccumuloIngest {
         }
 
         try {
-            getClient(processContext).tableOperations().addSplits(table,splits);
+            final AccumuloClient client = getClient(processContext);
+            client.tableOperations().addSplits(table,splits);
+            client.close();
         } catch (TableNotFoundException | AccumuloException | AccumuloSecurityException e) {
             throw new ProcessException(e);
         }
