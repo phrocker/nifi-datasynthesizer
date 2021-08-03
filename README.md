@@ -12,12 +12,6 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 -->
-# nifi-accumulo
+# nifi-datasynthesizer
 
-This is a basic NiFi->Accumulo integration. Running `mvn install` will create your NAR, which can be added
-to Apache NiFi. This is intended to be created with Apache Accumulo 2.x.
-
-The resulting NAR will be named 'nifi-accumulo-nar'
-
-
-Note that some of this code was modeled after the HBase work.
+This is a basic data synthesizer NAR which utilizes log-synth(https://github.com/tdunning/log-synth) as the underlying data generator
