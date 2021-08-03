@@ -1,82 +1,35 @@
-package org.apache.nifi.accumulo.processors;
+package org.apache.nifi.datasynthesizer.processors;
 
-import com.google.common.base.Splitter;
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
 import com.google.common.collect.SetMultimap;
-import datawave.data.hash.UID;
-import datawave.data.hash.UIDBuilder;
-import datawave.data.type.LcNoDiacriticsType;
-import datawave.ingest.data.RawRecordContainer;
-import datawave.ingest.data.Type;
-import datawave.ingest.data.TypeRegistry;
-import datawave.ingest.data.config.DataTypeHelperImpl;
-import datawave.ingest.data.config.DataTypeOverrideHelper;
-import datawave.ingest.mapreduce.EventMapper;
-import datawave.ingest.mapreduce.StandaloneTaskAttemptContext;
-
-import datawave.ingest.mapreduce.handler.edge.ProtobufEdgeDataTypeHandler;
-import datawave.ingest.mapreduce.handler.edge.define.EdgeDefinition;
-import datawave.ingest.mapreduce.handler.edge.define.EdgeDefinitionConfigurationHelper;
-import datawave.ingest.mapreduce.handler.edge.define.EdgeNode;
-import datawave.ingest.mapreduce.job.metrics.MetricsConfiguration;
-import datawave.ingest.test.StandaloneStatusReporter;
-import datawave.marking.MarkingFunctions;
-import org.apache.accumulo.core.client.*;
-import org.apache.accumulo.core.data.Mutation;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.io.LongWritable;
-import org.apache.nifi.serialization.record.type.ArrayDataType;
-import org.apache.nifi.serialization.record.type.ChoiceDataType;
-import org.apache.hadoop.io.Text;
-import org.apache.hadoop.mapreduce.*;
-import org.apache.hadoop.mapreduce.lib.map.WrappedMapper;
-import org.apache.hadoop.mapreduce.task.MapContextImpl;
-import org.apache.nifi.accumulo.data.ContentRecordHandler;
-import org.apache.nifi.accumulo.data.EdgeDataTypeHandler;
-import org.apache.nifi.serialization.record.type.RecordDataType;
-import org.apache.nifi.accumulo.data.RecordContainer;
-import org.apache.nifi.accumulo.data.RecordIngestHelper;
-import org.apache.nifi.accumulo.data.SchemaNormalizers;
-import org.apache.nifi.serialization.record.DataType;
-import org.apache.nifi.annotation.behavior.*;
+import org.apache.nifi.annotation.behavior.EventDriven;
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.SupportsBatching;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
-import org.apache.nifi.annotation.lifecycle.OnStopped;
-import org.apache.nifi.components.*;
+import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.ValidationContext;
+import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.record.path.FieldValue;
 import org.apache.nifi.record.path.RecordPath;
 import org.apache.nifi.record.path.RecordPathResult;
 import org.apache.nifi.record.path.util.RecordPathCache;
+import org.apache.nifi.record.path.validation.RecordPathPropertyNameValidator;
 import org.apache.nifi.serialization.RecordReader;
 import org.apache.nifi.serialization.RecordReaderFactory;
-import org.apache.nifi.serialization.record.Record;
-import org.apache.nifi.serialization.RecordSetWriterFactory;
-import org.apache.nifi.serialization.record.RecordField;
-import org.apache.nifi.util.StringUtils;
-import org.apache.nifi.serialization.record.util.DataTypeUtils;
-import org.apache.nifi.record.path.validation.RecordPathPropertyNameValidator;
 import org.apache.nifi.serialization.RecordSetWriter;
-import scala.annotation.meta.field;
+import org.apache.nifi.serialization.RecordSetWriterFactory;
+import org.apache.nifi.serialization.record.Record;
+import org.apache.nifi.serialization.record.RecordSchema;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.util.*;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Predicate;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 
 @EventDriven
@@ -107,8 +60,6 @@ public class RemoveRecordPath extends AbstractProcessor {
 
     private RecordReaderFactory recordParserFactory;
     private RecordSetWriterFactory writerFactory;
-
-    protected UIDBuilder<UID> uidBuilder = UID.builder();
 
     private volatile RecordPathCache recordPathCache;
     private volatile List<String> recordPaths;
@@ -179,7 +130,7 @@ public class RemoveRecordPath extends AbstractProcessor {
     Map<String, Pattern> recordPathToRegexes = new HashMap<>();
 
     @OnScheduled
-    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException, TableExistsException, AccumuloSecurityException, AccumuloException {
+    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException{
 
         recordPathCache = new RecordPathCache(context.getProperties().size() * 2);
 

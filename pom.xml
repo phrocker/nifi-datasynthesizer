@@ -15,16 +15,18 @@
         <accumulo.version>2.0.0</accumulo.version>
         <version.geowave>1.1.0</version.geowave>
         <version.jts>1.16.1</version.jts>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
     </properties>
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-nar-bundles</artifactId>
-        <version>1.13.0</version>
+        <version>1.14.0</version>
     </parent>
 
 
     <artifactId>nifi-datasynthesizer-bundle</artifactId>
-    <version>1.13.0</version>
+    <version>1.14.0</version>
     <packaging>pom</packaging>
 <build>
 
@@ -69,6 +71,7 @@
         </dependencies>
     </dependencyManagement>
 
+    <!--
     <repositories>
     <repository>
         <id>maven2-repository.dev.java.net</id>
@@ -90,4 +93,5 @@
        <url>http://maven.geomajas.org/(http://maven.geomajas.org/)</url>
  </repository>
 </repositories>
+-->
 </project>

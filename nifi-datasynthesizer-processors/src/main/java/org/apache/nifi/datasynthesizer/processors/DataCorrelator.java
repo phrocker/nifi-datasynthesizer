@@ -1,27 +1,19 @@
 package org.apache.nifi.datasynthesizer.processors;
 
 import com.mapr.synth.samplers.SchemaSampler;
-import org.apache.accumulo.core.client.AccumuloException;
-import org.apache.accumulo.core.client.AccumuloSecurityException;
-import org.apache.accumulo.core.client.TableExistsException;
 import org.apache.commons.io.IOUtils;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.nifi.accumulo.data.JsonWriter;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
-import org.apache.nifi.controller.ConfigurationContext;
+import org.apache.nifi.datasynthesizer.data.JsonWriter;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.json.JsonRecordSetWriter;
 import org.apache.nifi.json.JsonSchemaInference;
 import org.apache.nifi.json.JsonTreeRowRecordReader;
-import org.apache.nifi.logging.LogLevel;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -32,41 +24,21 @@ import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.schema.inference.RecordSource;
 import org.apache.nifi.schema.inference.SchemaInferenceEngine;
 import org.apache.nifi.schema.inference.TimeValueInference;
-import org.apache.nifi.serialization.MalformedRecordException;
-import org.apache.nifi.serialization.RecordReader;
-import org.apache.nifi.serialization.RecordReaderFactory;
-import org.apache.nifi.serialization.RecordSetWriter;
-import org.apache.nifi.serialization.RecordSetWriterFactory;
+import org.apache.nifi.serialization.*;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.codehaus.jackson.JsonNode;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.node.ObjectNode;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Random;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.IntStream;
 
 
 @InputRequirement(InputRequirement.Requirement.INPUT_ALLOWED)
-@Tags({"hadoop", "accumulo", "put", "record"})
+@Tags({"hadoop",  "put", "record"})
 public class DataCorrelator extends AbstractProcessor {
 
     protected static final PropertyDescriptor SCHEMA = new PropertyDescriptor.Builder()
@@ -225,7 +197,7 @@ public class DataCorrelator extends AbstractProcessor {
     private boolean selectObject = true;
 
     @OnScheduled
-    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException, TableExistsException, AccumuloSecurityException, AccumuloException {
+    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
         recordParserFactory = context.getProperty(RECORD_READER_FACTORY)
                 .asControllerService(RecordReaderFactory.class);
         selectObject = context.getProperty(SELECT_OBJECT).asBoolean();

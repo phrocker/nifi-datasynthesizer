@@ -29,13 +29,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.io.Resources;
 import org.apache.mahout.math.random.Multinomial;
 
-import scala.util.Random;
 
 import java.io.IOException;
 import java.util.AbstractMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**

@@ -2,11 +2,7 @@ package org.apache.nifi.datasynthesizer.processors;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mapr.synth.samplers.SchemaSampler;
-import org.apache.accumulo.core.client.AccumuloException;
-import org.apache.accumulo.core.client.AccumuloSecurityException;
-import org.apache.accumulo.core.client.TableExistsException;
 import org.apache.commons.io.IOUtils;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
@@ -51,7 +47,7 @@ import java.util.stream.IntStream;
 
 
 @InputRequirement(InputRequirement.Requirement.INPUT_ALLOWED)
-@Tags({"hadoop", "accumulo", "put", "record"})
+@Tags({"hadoop",  "put", "record"})
 public class DataSynthesizer extends AbstractProcessor {
 
     protected static final PropertyDescriptor SCHEMA = new PropertyDescriptor.Builder()
@@ -95,10 +91,6 @@ public class DataSynthesizer extends AbstractProcessor {
         return properties;
     }
 
-
-    Configuration conf;
-
-
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
             .description("Data could be synthesized")
@@ -131,7 +123,7 @@ public class DataSynthesizer extends AbstractProcessor {
 
 
     @OnScheduled
-    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException, TableExistsException, AccumuloSecurityException, AccumuloException {
+    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
         sampler = new ThreadLocal<>();
         if (context.getProperty(SCHEMA).isSet()) {
             definedSchema = context.getProperty(SCHEMA).getValue();
