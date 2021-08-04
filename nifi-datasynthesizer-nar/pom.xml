@@ -22,7 +22,7 @@
         <version>1.14.0</version>
     </parent>
 
-    <artifactId>nifi-accumulo-nar</artifactId>
+    <artifactId>nifi-datasynthesizer-nar</artifactId>
     <version>1.14.0</version>
     <packaging>nar</packaging>
     <properties>
