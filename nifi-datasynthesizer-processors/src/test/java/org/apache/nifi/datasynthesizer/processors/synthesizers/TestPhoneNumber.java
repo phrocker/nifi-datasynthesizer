@@ -17,6 +17,7 @@
  */
 package org.apache.nifi.datasynthesizer.processors.synthesizers;
 
+import com.github.javafaker.Faker;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
 import org.apache.nifi.datasynthesizer.processors.synthesizers.PhoneNumber;
 import org.apache.nifi.reporting.InitializationException;
@@ -79,6 +80,7 @@ public class TestPhoneNumber {
         String phoneNumber = out.getContent().trim();
         Pattern pattern = Pattern.compile("^(\\d{3}[- .]?){2}\\d{4}$");
         Assert.assertTrue(out.getContent() + " Is not a valid phone number",pattern.matcher(phoneNumber).matches());
+
     }
 
 }

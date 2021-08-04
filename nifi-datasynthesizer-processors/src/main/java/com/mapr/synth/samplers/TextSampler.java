@@ -25,73 +25,38 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
+import com.mapr.synth.FancyTimeFormatter;
 import org.apache.mahout.math.random.Multinomial;
 
 import java.io.IOException;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Sample from a multinomial of strings.
- *
- * Tip of the hat to http://www.jimwegryn.com/Names/StreetNameGenerator.htm
+ * Add texts to a context
  *
  * Thread safe for sampling
  */
-public class StringSampler extends FieldSampler {
+public class TextSampler extends FieldSampler {
     protected AtomicReference<Multinomial<String>> distribution = new AtomicReference<>();
-
-    public StringSampler() {
+    protected Random rand = new Random();
+    protected List<String> bagOhWords = new ArrayList<>();
+    public TextSampler() {
     }
 
-    public StringSampler(String resource) {
-        readDistribution(resource);
+    @SuppressWarnings("unused")
+    public void setText(String string) {
+        bagOhWords.add(string);
     }
 
-    protected void readDistribution(String resourceName) {
-        try {
-            if (distribution.compareAndSet(null, new Multinomial<>())) {
-                Splitter onTab = Splitter.on("\t").trimResults();
-                double i = 20;
-                for (String line : Resources.readLines(Resources.getResource(resourceName), Charsets.UTF_8)) {
-                    if (!line.startsWith("#")) {
-                        Iterator<String> parts = onTab.split(line).iterator();
-                        String name = translate(parts.next());
-                        double weight;
-                        if (parts.hasNext()) {
-                            weight = Double.parseDouble(parts.next());
-                        } else {
-                            weight = 1.0 / i;
-                        }
-                        distribution.get().add(name, weight);
-                    }
-                    i++;
-                }
-            }
+    public TextSampler(String resource) {
 
-        } catch (IOException e) {
-            throw new RuntimeException("Couldn't read built-in resource file", e);
-        }
-    }
-
-    public void setDist(Map<String, ?> dist) {
-        Preconditions.checkArgument(dist.size() > 0);
-        distribution.compareAndSet(null, new Multinomial<>());
-        for (String key : dist.keySet()) {
-            distribution.get().add(key, Double.parseDouble(dist.get(key).toString()));
-        }
-    }
-
-
-    protected String translate(String s) {
-        return s;
     }
 
     @Override
     public JsonNode sample() {
       synchronized (this) {
-        return new TextNode(distribution.get().sample());
+        return new TextNode( bagOhWords.get( rand.nextInt(bagOhWords.size())) );
       }
     }
 }

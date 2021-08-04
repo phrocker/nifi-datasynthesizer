@@ -17,9 +17,7 @@
  */
 package org.apache.nifi.datasynthesizer.processors.synthesizers;
 
-import com.github.javafaker.Faker;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
-import org.apache.nifi.datasynthesizer.processors.synthesizers.PhoneNumber;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordWriter;
 import org.apache.nifi.util.MockFlowFile;
@@ -28,19 +26,17 @@ import org.apache.nifi.util.TestRunners;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.HashSet;
-import java.util.Set;
 import java.util.regex.Pattern;
 
-public class TestPhoneNumber {
+public class TestTextMessage {
 
 
     private TestRunner getTestRunner(String area_code) throws InitializationException {
         MockRecordWriter writerService = new MockRecordWriter("", false);
-        final TestRunner runner = TestRunners.newTestRunner(PhoneNumber.class);
+        final TestRunner runner = TestRunners.newTestRunner(TextMessage.class);
         runner.enforceReadStreamsClosed(false);
         if (null != area_code) {
-            runner.setProperty(PhoneNumber.AREA_CODE, area_code);
+            runner.setProperty(TextMessage.SOURCE_AREA_CODE, area_code);
         }
         runner.setProperty(DataSynthesizer.RECORD_COUNT,"1");
         runner.addControllerService("writer", writerService);
@@ -63,24 +59,8 @@ public class TestPhoneNumber {
         runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
         final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
         String phoneNumber = out.getContent().trim();
-        Pattern pattern = Pattern.compile("^497-(\\d{3}[- .]?)\\d{4}$");
-        Assert.assertTrue(out.getContent() + " Is not a valid phone number",pattern.matcher(phoneNumber).matches());
+        System.out.println(phoneNumber);
     }
 
-    @Test
-    public void testValidPhoneNumberWithoutAreaCode() throws Exception {
-        final String schema = "{'name':'br', 'class':'browser'}";
-        TestRunner runner = getTestRunner(schema);
-        runner = getTestRunner(null);
-        runner.assertValid();
-        runner.run();
-
-        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
-        final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
-        String phoneNumber = out.getContent().trim();
-        Pattern pattern = Pattern.compile("^(\\d{3}[- .]?){2}\\d{4}$");
-        Assert.assertTrue(out.getContent() + " Is not a valid phone number",pattern.matcher(phoneNumber).matches());
-
-    }
 
 }

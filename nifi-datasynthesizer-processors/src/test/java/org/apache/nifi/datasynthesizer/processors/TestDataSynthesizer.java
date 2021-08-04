@@ -104,6 +104,7 @@ public class TestDataSynthesizer {
         expected.add("Chrome");
         expected.add("Firefox");
         expected.add("Safari");
+        expected.add("IE");
         Assert.assertTrue("Does not contain " + out.getContent(), expected.contains(out.getContent().trim()));
     }
 
