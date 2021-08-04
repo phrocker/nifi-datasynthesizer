@@ -125,6 +125,9 @@ class IntegerSampler extends FieldSampler {
     public JsonNode sample() {
         synchronized (this) {
             if (dist == null) {
+                if (min == max){
+                    return new IntNode(min);
+                }
                 int r = power >= 0 ? Integer.MAX_VALUE : Integer.MIN_VALUE;
                 if (power >= 0) {
                     for (int i = 0; i <= power; i++) {

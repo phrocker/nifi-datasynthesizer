@@ -15,8 +15,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.datasynthesizer.processors;
+package org.apache.nifi.datasynthesizer.processors.synthesizers;
 
+import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
 import org.apache.nifi.datasynthesizer.processors.synthesizers.PhoneNumber;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordWriter;
@@ -28,15 +29,18 @@ import org.junit.Test;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class TestPhoneNumber {
 
 
-    private TestRunner getTestRunner(String schema, String area_code) throws InitializationException {
+    private TestRunner getTestRunner(String area_code) throws InitializationException {
         MockRecordWriter writerService = new MockRecordWriter("", false);
         final TestRunner runner = TestRunners.newTestRunner(PhoneNumber.class);
         runner.enforceReadStreamsClosed(false);
-        runner.setProperty(DataSynthesizer.SCHEMA,schema);
+        if (null != area_code) {
+            runner.setProperty(PhoneNumber.AREA_CODE, area_code);
+        }
         runner.setProperty(DataSynthesizer.RECORD_COUNT,"1");
         runner.addControllerService("writer", writerService);
         runner.enableControllerService(writerService);
@@ -46,54 +50,35 @@ public class TestPhoneNumber {
 
 
 
-    @Test
-    public void testSetState() throws Exception {
-        String schema = "";
-        TestRunner runner = getTestRunner(schema);
-        runner.assertNotValid();
-        schema = "{\"name\":\"br\", \"class\":\"browser\"}";
-        runner = getTestRunner(schema);
-        runner.assertValid();
-    }
 
     @Test
-    public void testSchema1() throws Exception {
-        final String schema = "[{'name':'br', 'class':'browser'}]";
-        TestRunner runner = getTestRunner(schema);
-        runner = getTestRunner(schema);
-        runner.assertValid();
-        runner.run();
-
-        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
-    }
-
-    @Test
-    public void testSchema2() throws Exception {
+    public void testValidPhoneNumberWithAreaCode() throws Exception {
         final String schema = "{'name':'br', 'class':'browser'}";
         TestRunner runner = getTestRunner(schema);
-        runner = getTestRunner(schema);
-        runner.assertValid();
-        runner.run();
-
-        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
-    }
-
-    @Test
-    public void testBrowserSchema() throws Exception {
-        final String schema = "{'name':'br', 'class':'browser'}";
-        TestRunner runner = getTestRunner(schema);
-        runner = getTestRunner(schema);
+        runner = getTestRunner("497");
         runner.assertValid();
         runner.run();
 
         runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
         final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
-        Set<String> expected = new HashSet<>();
-        expected.add("Mobile");
-        expected.add("Chrome");
-        expected.add("Firefox");
-        expected.add("Safari");
-        Assert.assertTrue("Does not contain " + out.getContent(), expected.contains(out.getContent().trim()));
+        String phoneNumber = out.getContent().trim();
+        Pattern pattern = Pattern.compile("^497-(\\d{3}[- .]?)\\d{4}$");
+        Assert.assertTrue(out.getContent() + " Is not a valid phone number",pattern.matcher(phoneNumber).matches());
+    }
+
+    @Test
+    public void testValidPhoneNumberWithoutAreaCode() throws Exception {
+        final String schema = "{'name':'br', 'class':'browser'}";
+        TestRunner runner = getTestRunner(schema);
+        runner = getTestRunner(null);
+        runner.assertValid();
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
+        final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
+        String phoneNumber = out.getContent().trim();
+        Pattern pattern = Pattern.compile("^(\\d{3}[- .]?){2}\\d{4}$");
+        Assert.assertTrue(out.getContent() + " Is not a valid phone number",pattern.matcher(phoneNumber).matches());
     }
 
 }

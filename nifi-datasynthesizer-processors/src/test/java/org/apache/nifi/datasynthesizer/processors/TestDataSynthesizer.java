@@ -15,11 +15,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.accumulo.processors;
+package org.apache.nifi.datasynthesizer.processors;
 
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordParser;
+import org.apache.nifi.serialization.record.MockRecordWriter;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
@@ -41,161 +42,69 @@ public class TestDataSynthesizer {
      * Though deprecated in 2.0 it still functions very well
      */
 
-    private TestRunner getTestRunner(String table, String columnFamily) {
+
+    private TestRunner getTestRunner(String schema) throws InitializationException {
+        MockRecordWriter writerService = new MockRecordWriter("", false);
         final TestRunner runner = TestRunners.newTestRunner(DataSynthesizer.class);
         runner.enforceReadStreamsClosed(false);
-        //runner.setProperty(RecordIngest.TABLE_NAME, table);
+        runner.setProperty(DataSynthesizer.SCHEMA,schema);
+        runner.setProperty(DataSynthesizer.RECORD_COUNT,"1");
+        runner.addControllerService("writer", writerService);
+        runner.enableControllerService(writerService);
+        runner.setProperty(DataSynthesizer.RECORD_WRITER,"writer");
         return runner;
     }
 
 
 
-
-    private Set<Key> generateTestData(TestRunner runner, boolean valueincq, String delim, String cv) throws IOException {
-
-        final MockRecordParser parser = new MockRecordParser();
-        try {
-            runner.addControllerService("parser", parser);
-        } catch (InitializationException e) {
-            throw new IOException(e);
-        }
-        runner.enableControllerService(parser);
-        runner.setProperty(RecordIngest.RECORD_READER_FACTORY, "parser");
-
-        long ts = System.currentTimeMillis();
-
-        parser.addSchemaField("id", RecordFieldType.STRING);
-        parser.addSchemaField("name", RecordFieldType.STRING);
-        parser.addSchemaField("code", RecordFieldType.STRING);
-        parser.addSchemaField("timestamp", RecordFieldType.LONG);
-
-        Set<Key> expectedKeys = new HashSet<>();
-        ColumnVisibility colViz = new ColumnVisibility();
-        if (null != cv)
-            colViz = new ColumnVisibility(cv);
-        Random random = new Random();
-        for (int x = 0; x < 5; x++) {
-            //final int row = random.nextInt(10000000);
-            final String row = UUID.randomUUID().toString();
-            final String cf = UUID.randomUUID().toString();
-            final String cq = UUID.randomUUID().toString();
-            Text keyCq = new Text("name");
-            if (valueincq){
-                if (null != delim && !delim.isEmpty())
-                    keyCq.append(delim.getBytes(),0,delim.length());
-                keyCq.append(cf.getBytes(),0,cf.length());
-            }
-            expectedKeys.add(new Key(new Text(row), new Text("family1"), keyCq, colViz,ts));
-            keyCq = new Text("code");
-            if (valueincq){
-                if (null != delim && !delim.isEmpty())
-                    keyCq.append(delim.getBytes(),0,delim.length());
-                keyCq.append(cq.getBytes(),0,cq.length());
-            }
-            expectedKeys.add(new Key(new Text(row), new Text("family1"), keyCq, colViz, ts));
-            parser.addRecord(row, cf, cq, ts);
-        }
-
-        return expectedKeys;
+    @Test
+    public void testSetState() throws Exception {
+        String schema = "";
+        TestRunner runner = getTestRunner(schema);
+        runner.assertNotValid();
+        schema = "{\"name\":\"br\", \"class\":\"browser\"}";
+        runner = getTestRunner(schema);
+        runner.assertValid();
     }
 
-    void printKeys(String tableName, Set<Key> expectedKeys, Authorizations auths) throws AccumuloSecurityException, AccumuloException, TableNotFoundException {
-        if (null == auths)
-            auths = new Authorizations();
-        try(BatchScanner scanner = accumulo.getConnector("root","password").createBatchScanner(tableName,auths,1)) {
-            List<Range> ranges = new ArrayList<>();
-            ranges.add(new Range());
-            scanner.setRanges(ranges);
-            for (Map.Entry<Key, Value> kv : scanner) {
-                System.out.println(kv.getKey());
-            }
-        }
-
-    }
-
-    void verifyKey(String tableName, Set<Key> expectedKeys, Authorizations auths) throws AccumuloSecurityException, AccumuloException, TableNotFoundException {
-        if (null == auths)
-            auths = new Authorizations();
-        try(BatchScanner scanner = accumulo.getConnector("root","password").createBatchScanner(tableName,auths,1)) {
-            List<Range> ranges = new ArrayList<>();
-            ranges.add(new Range());
-            scanner.setRanges(ranges);
-            for (Map.Entry<Key, Value> kv : scanner) {
-                Assert.assertTrue(kv.getKey() + " not in expected keys",expectedKeys.remove(kv.getKey()));
-            }
-        }
-        Assert.assertEquals(0, expectedKeys.size());
-
-    }
-
-    private void basicPutSetup(boolean valueincq) throws Exception {
-        basicPutSetup(valueincq,null,null,null,false);
-    }
-
-    private void basicPutSetup(boolean valueincq, final String delim) throws Exception {
-        basicPutSetup(valueincq,delim,null,null,false);
-    }
-
-    private void basicPutSetup(boolean valueincq,String delim, String auths, Authorizations defaultVis, boolean deletes) throws Exception {
-        String tableName = UUID.randomUUID().toString();
-        tableName=tableName.replace("-","a");
-        if (null != defaultVis)
-        accumulo.getConnector("root","password").securityOperations().changeUserAuthorizations("root",defaultVis);
-        TestRunner runner = getTestRunner(tableName, DEFAULT_COLUMN_FAMILY);
-        runner.setProperty(RecordIngest.CREATE_TABLE, "True");
-        runner.setProperty(RecordIngest.DEFAULT_VISIBILITY, "");
-        runner.setProperty(RecordIngest.DATA_NAME, "test");
-        runner.setProperty(RecordIngest.EDGE_TYPES, "testedge");
-        runner.setProperty("FROM.testedge","/ID");
-        runner.setProperty("TO.testedge","/CODE");
-
-        if (null != defaultVis){
-            runner.setProperty(RecordIngest.DEFAULT_VISIBILITY, auths);
-        }
-        Set<Key> expectedKeys = generateTestData(runner,valueincq,delim, auths);
-        runner.enqueue("Test".getBytes("UTF-8")); // This is to coax the processor into reading the data in the reader.l
+    @Test
+    public void testSchema1() throws Exception {
+        final String schema = "[{'name':'br', 'class':'browser'}]";
+        TestRunner runner = getTestRunner(schema);
+        runner = getTestRunner(schema);
+        runner.assertValid();
         runner.run();
 
-        List<MockFlowFile> results = runner.getFlowFilesForRelationship(RecordIngest.REL_SUCCESS);
-        Assert.assertTrue("Wrong count", results.size() == 1);
-        //verifyKey(tableName, expectedKeys, defaultVis);
-        printKeys(tableName, expectedKeys, defaultVis);
-        printKeys("graph", expectedKeys, defaultVis);
-        if (deletes){
-            runner.enqueue("Test".getBytes("UTF-8")); // This is to coax the processor into reading the data in the reader.l
-            runner.run();
-            runner.getFlowFilesForRelationship(RecordIngest.REL_SUCCESS);
-            verifyKey(tableName, new HashSet<>(), defaultVis);
-        }
-
-    }
-
-
-
-
-    @Test
-    public void testByteEncodedPut() throws Exception {
-        basicPutSetup(false);
+        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
     }
 
     @Test
-    public void testByteEncodedPutThenDelete() throws Exception {
-        basicPutSetup(true,null,"A&B",new Authorizations("A","B"),true);
-    }
+    public void testSchema2() throws Exception {
+        final String schema = "{'name':'br', 'class':'browser'}";
+        TestRunner runner = getTestRunner(schema);
+        runner = getTestRunner(schema);
+        runner.assertValid();
+        runner.run();
 
-
-    @Test
-    public void testByteEncodedPutCq() throws Exception {
-        basicPutSetup(true);
-    }
-
-    @Test
-    public void testByteEncodedPutCqDelim() throws Exception {
-        basicPutSetup(true,"\u0000");
+        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
     }
 
     @Test
-    public void testByteEncodedPutCqWithVis() throws Exception {
-        basicPutSetup(true,null,"A&B",new Authorizations("A","B"),false);
+    public void testBrowserSchema() throws Exception {
+        final String schema = "{'name':'br', 'class':'browser'}";
+        TestRunner runner = getTestRunner(schema);
+        runner = getTestRunner(schema);
+        runner.assertValid();
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
+        final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
+        Set<String> expected = new HashSet<>();
+        expected.add("Mobile");
+        expected.add("Chrome");
+        expected.add("Firefox");
+        expected.add("Safari");
+        Assert.assertTrue("Does not contain " + out.getContent(), expected.contains(out.getContent().trim()));
     }
+
 }

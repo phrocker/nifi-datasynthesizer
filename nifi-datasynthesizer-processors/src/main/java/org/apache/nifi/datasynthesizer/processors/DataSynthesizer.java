@@ -1,6 +1,7 @@
 package org.apache.nifi.datasynthesizer.processors;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.mapr.synth.samplers.SchemaSampler;
 import org.apache.commons.io.IOUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
@@ -26,23 +27,13 @@ import org.apache.nifi.serialization.MalformedRecordException;
 import org.apache.nifi.serialization.RecordSetWriter;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.record.Record;
-import org.apache.nifi.record.path.validation.RecordPathPropertyNameValidator;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.IntStream;
 
 
@@ -50,7 +41,7 @@ import java.util.stream.IntStream;
 @Tags({"hadoop",  "put", "record"})
 public class DataSynthesizer extends AbstractProcessor {
 
-    protected static final PropertyDescriptor SCHEMA = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor SCHEMA = new PropertyDescriptor.Builder()
             .name("schema")
             .displayName("Record Schema")
             .description("If defined, this schema will be used. Otherwise flow input will be used")
@@ -58,7 +49,7 @@ public class DataSynthesizer extends AbstractProcessor {
             .required(false)
             .build();
 
-    protected static final PropertyDescriptor RECORD_COUNT = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor RECORD_COUNT = new PropertyDescriptor.Builder()
             .name("record-count")
             .displayName("Record Count")
             .description("Number of records to create per iteration")
@@ -67,7 +58,7 @@ public class DataSynthesizer extends AbstractProcessor {
             .required(false)
             .build();
 
-    static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
             .name("record-writer")
             .displayName("Record Writer")
             .description("Specifies the Controller Service to use for writing out the records")
@@ -117,9 +108,9 @@ public class DataSynthesizer extends AbstractProcessor {
         return set;
     }
 
-    String definedSchema = null;
+    protected String definedSchema = null;
 
-    ThreadLocal<SchemaSampler> sampler = new ThreadLocal<>();
+    protected ThreadLocal<SchemaSampler> sampler = new ThreadLocal<>();
 
 
     @OnScheduled
@@ -139,7 +130,11 @@ public class DataSynthesizer extends AbstractProcessor {
         try {
             if (definedSchema != null) {
                 if (sampler.get() == null) {
-                    sampler.set(new SchemaSampler(definedSchema));
+                    try {
+                        sampler.set(new SchemaSampler(definedSchema));
+                    }catch( MismatchedInputException mie){
+                        sampler.set(new SchemaSampler("[" + definedSchema + "]"));
+                    }
                 }
                 mySampler = sampler.get();
             } else {
