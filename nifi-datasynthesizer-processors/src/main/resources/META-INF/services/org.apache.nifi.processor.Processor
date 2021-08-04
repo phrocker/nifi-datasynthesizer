@@ -12,10 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-org.apache.nifi.accumulo.processors.PutAccumuloRecord
-org.apache.nifi.accumulo.processors.ScanAccumulo
-org.apache.nifi.accumulo.processors.DataSynthesizer
-org.apache.nifi.accumulo.processors.DataCorrelator
-org.apache.nifi.accumulo.processors.RecordIngest
-org.apache.nifi.accumulo.processors.AddSplits
-org.apache.nifi.accumulo.processors.RemoveRecordPath
+org.apache.nifi.datasynthesizer.processors.DataCorrelator
+org.apache.nifi.datasynthesizer.processors.DataSynthesizer
+org.apache.nifi.datasynthesizer.processors.RemoveRecordPath
+org.apache.nifi.datasynthesizer.processors.synthesizers.PhoneNumber
+org.apache.nifi.datasynthesizer.processors.synthesizers.TextMessage
