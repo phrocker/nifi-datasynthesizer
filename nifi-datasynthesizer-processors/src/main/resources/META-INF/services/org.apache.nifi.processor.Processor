@@ -17,3 +17,4 @@ org.apache.nifi.datasynthesizer.processors.DataSynthesizer
 org.apache.nifi.datasynthesizer.processors.RemoveRecordPath
 org.apache.nifi.datasynthesizer.processors.synthesizers.PhoneNumber
 org.apache.nifi.datasynthesizer.processors.synthesizers.TextMessage
+org.apache.nifi.datasynthesizer.processors.synthesizers.IotData

@@ -4,17 +4,16 @@ import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
-import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
+import org.apache.nifi.datasynthesizer.processors.DataSynthesizerBase;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.serialization.RecordSetWriterFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-public class PhoneNumber extends DataSynthesizer {
+public class PhoneNumber extends DataSynthesizerBase {
     protected static final PropertyDescriptor AREA_CODE = new PropertyDescriptor.Builder()
             .name("area-code")
             .displayName("Area Code")
@@ -31,7 +30,6 @@ public class PhoneNumber extends DataSynthesizer {
 
 
     @OnScheduled
-    @Override
     public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
         sampler = new ThreadLocal<>();
         int area_min = 100;
@@ -56,8 +54,10 @@ public class PhoneNumber extends DataSynthesizer {
 
     @Override
     public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties = super.getSupportedPropertyDescriptors();
+        final List<PropertyDescriptor> properties  = new ArrayList<>();
         properties.add(AREA_CODE);
+        properties.add(RECORD_COUNT);
+        properties.add(RECORD_WRITER);
         return properties;
     }
 

@@ -12,6 +12,18 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 -->
-# nifi-datasynthesizer
+# NiFi DataSynthesizer
 
-This is a basic data synthesizer NAR which utilizes log-synth(https://github.com/tdunning/log-synth) as the underlying data generator
+This is a basic data synthesizer NAR which utilizes [log-synth](https://github.com/tdunning/log-synth) and [Java Faker](https://github.com/DiUS/java-faker) to generate semi-realistic data within records.
+
+The package contains the following processors:
+
+Processor Name | Description
+------------ | -------------
+DataCorrelator | Data correlator processor that joins two generated records with a free-form schema for a new record that will be emplaced within the input record
+DataSynthesizer | Basic data synthesizer that supports a schema ala log-synth. These Json schemas support a variety of generators. Use this for free-form generation
+IotData | IoT data generator that creates a record with a device UUID, IP address, lat/long, date, and temperature.
+PhoneNumber | Generates a phone number. The area code can be specified in the processor configuration
+TextMessage | Generates a text message record containing source phone number, source IMEI, destination phone number, timestamp, and a sample message.
+
+All processors have an output record writer configuration and the number of output records.

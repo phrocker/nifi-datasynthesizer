@@ -5,6 +5,10 @@
     "seed": 1
   },
   {
+    "name": "device-ip",
+    "class": "ipv4"
+  },
+  {
     "class": "flatten",
     "prefix": "",
     "value": {
@@ -31,11 +35,6 @@
           "start": 30,
           "mean": 0,
           "sd":1
-        },
-        {
-          "name": "case-open",
-          "class": "int",
-          "dist": [0, 999, 1, 1]
         }
       ]
     },

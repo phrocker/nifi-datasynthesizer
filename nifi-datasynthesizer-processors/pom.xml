@@ -25,6 +25,20 @@
     <artifactId>nifi-datasynthesizer-processors</artifactId>
     <packaging>jar</packaging>
 
+
+    <build>
+        <resources>
+            <!-- regular resource processsing for everything except logback.xml -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes>
+                    <exclude>log4j.properties</exclude>
+                </excludes>
+            </resource>
+        </resources>
+    </build>
+
+
     <dependencies>
         <dependency>
             <groupId>com.github.javafaker</groupId>

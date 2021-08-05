@@ -5,15 +5,16 @@ import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
-import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
+import org.apache.nifi.datasynthesizer.processors.DataSynthesizerBase;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.util.StandardValidators;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-public class TextMessage extends DataSynthesizer {
+public class TextMessage extends DataSynthesizerBase {
     protected static final PropertyDescriptor SOURCE_AREA_CODE = new PropertyDescriptor.Builder()
             .name("origin-area-code")
             .displayName("Source Area Code")
@@ -39,7 +40,6 @@ public class TextMessage extends DataSynthesizer {
 
 
     @OnScheduled
-    @Override
     public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
         sampler = new ThreadLocal<>();
         int source_area_min = 100;
@@ -85,10 +85,11 @@ public class TextMessage extends DataSynthesizer {
 
     @Override
     public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties = super.getSupportedPropertyDescriptors();
+        final List<PropertyDescriptor> properties  = new ArrayList<>();
         properties.add(SOURCE_AREA_CODE);
         properties.add(DESTINATION_AREA_CODE);
-
+        properties.add(RECORD_COUNT);
+        properties.add(RECORD_WRITER);
         return properties;
     }
 

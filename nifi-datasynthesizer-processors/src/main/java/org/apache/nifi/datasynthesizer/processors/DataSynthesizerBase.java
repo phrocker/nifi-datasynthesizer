@@ -39,21 +39,39 @@ import java.util.stream.IntStream;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_ALLOWED)
 @Tags({"hadoop",  "put", "record"})
-public class DataSynthesizer extends DataSynthesizerBase {
+public class DataSynthesizerBase extends AbstractProcessor {
 
-    public DataSynthesizer(){
+    public static final PropertyDescriptor SCHEMA = new PropertyDescriptor.Builder()
+            .name("schema")
+            .displayName("Record Schema")
+            .description("If defined, this schema will be used. Otherwise flow input will be used")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor RECORD_COUNT = new PropertyDescriptor.Builder()
+            .name("record-count")
+            .displayName("Record Count")
+            .description("Number of records to create per iteration")
+            .defaultValue("1000")
+            .addValidator(StandardValidators.INTEGER_VALIDATOR)
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
+            .name("record-writer")
+            .displayName("Record Writer")
+            .description("Specifies the Controller Service to use for writing out the records")
+            .identifiesControllerService(RecordSetWriterFactory.class)
+            .required(true)
+            .build();
+
+
+
+    public DataSynthesizerBase(){
 
     }
 
-
-    @Override
-    public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties = new ArrayList<>();
-        properties.add(SCHEMA);
-        properties.add(RECORD_COUNT);
-        properties.add(RECORD_WRITER);
-        return properties;
-    }
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
@@ -64,6 +82,15 @@ public class DataSynthesizer extends DataSynthesizerBase {
             .description("Data could not be synthesized")
             .build();
 
+
+
+    @Override
+    public Set<Relationship> getRelationships() {
+        final Set<Relationship> rels = new HashSet<>();
+        rels.add(REL_SUCCESS);
+        rels.add(REL_FAILURE);
+        return rels;
+    }
 
     @Override
     protected Collection<ValidationResult> customValidate(ValidationContext validationContext) {
@@ -76,15 +103,6 @@ public class DataSynthesizer extends DataSynthesizerBase {
 
     protected ThreadLocal<SchemaSampler> sampler = new ThreadLocal<>();
 
-
-    @OnScheduled
-    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
-        sampler = new ThreadLocal<>();
-        if (context.getProperty(SCHEMA).isSet()) {
-            definedSchema = context.getProperty(SCHEMA).getValue();
-        }
-
-    }
 
 
     @Override
