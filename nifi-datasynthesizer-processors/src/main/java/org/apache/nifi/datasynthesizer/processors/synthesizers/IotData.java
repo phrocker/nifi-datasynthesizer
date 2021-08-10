@@ -1,5 +1,7 @@
 package org.apache.nifi.datasynthesizer.processors.synthesizers;
 
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizerBase;
@@ -10,6 +12,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
+@InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
+@Tags({"data-synthesis", "record", "iot"})
 public class IotData extends DataSynthesizerBase {
 
     public IotData(){

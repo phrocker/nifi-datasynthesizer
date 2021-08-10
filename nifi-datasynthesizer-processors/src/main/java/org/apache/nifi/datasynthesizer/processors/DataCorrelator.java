@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 
 @InputRequirement(InputRequirement.Requirement.INPUT_ALLOWED)
-@Tags({"hadoop",  "put", "record"})
+@Tags({"data-synthesis", "record"})
 public class DataCorrelator extends AbstractProcessor {
 
     protected static final PropertyDescriptor SCHEMA = new PropertyDescriptor.Builder()

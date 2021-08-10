@@ -35,13 +35,10 @@ import org.apache.nifi.util.StringUtils;
 import org.apache.mahout.common.RandomUtils;
 
 import java.io.IOException;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Returns data structures containing various aspects of zip codes including location, population and such.
@@ -58,6 +55,7 @@ public class ZipSampler extends FieldSampler {
     private String country="";
     private LocationBound limits = null;
     private boolean verbose = true;
+    private int selectedIndex = -1;
 
     public ZipSampler() {
         try {
@@ -138,6 +136,26 @@ public class ZipSampler extends FieldSampler {
             ((BoundingBox) limits).setLongitude(minLongitude, maxLongitude);
         }
     }
+    @SuppressWarnings("UnusedDeclaration")
+    public void setZip(final String zipcode){
+        String searchZip = zipcode;
+        int idx = zipcode.indexOf("-");
+        if (idx > 0){
+            searchZip = zipcode.substring(0, idx);
+        }
+        List<String> sortedZips = Lists.newArrayList( values.get("zip") );
+        Collections.sort( sortedZips );
+        int zipIndex = Collections.binarySearch(sortedZips, searchZip);
+        if (zipIndex < 0 ){
+            zipIndex = (-zipIndex - 1);
+        }
+        // select the closest zip
+        final String selectedZip = sortedZips.get(zipIndex);
+        OptionalInt indexOpt = IntStream.range(0, values.get("zip").size())
+                .filter(i -> selectedZip.equals(values.get("zip").get(i)))
+                .findFirst();
+        selectedIndex = indexOpt.orElse(-1);
+    }
 
     /**
      * Sets the latitude bounds for the returned points.  The format should be two comma separated decimal numbers
@@ -214,7 +232,7 @@ public class ZipSampler extends FieldSampler {
     @Override
     public JsonNode sample() {
         while (true) {
-            int i = rand.nextInt(zipCount);
+            int i = selectedIndex >= 0 ? selectedIndex : rand.nextInt(zipCount);
             ObjectNode r = new ObjectNode(nodeFactory);
             for (String key : values.keySet()) {
                 r.set(key, new TextNode(values.get(key).get(i)));

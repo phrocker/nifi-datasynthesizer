@@ -37,8 +37,7 @@ import java.util.*;
 import java.util.stream.IntStream;
 
 
-@InputRequirement(InputRequirement.Requirement.INPUT_ALLOWED)
-@Tags({"hadoop",  "put", "record"})
+@Tags({"data-synthesis", "record"})
 public class DataSynthesizerBase extends AbstractProcessor {
 
     public static final PropertyDescriptor SCHEMA = new PropertyDescriptor.Builder()

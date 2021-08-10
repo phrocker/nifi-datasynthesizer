@@ -1,6 +1,8 @@
 package org.apache.nifi.datasynthesizer.processors.synthesizers;
 
 import com.github.javafaker.Faker;
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
@@ -14,6 +16,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
+@InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
+@Tags({"data-synthesis", "record", "text", "phone"})
 public class TextMessage extends DataSynthesizerBase {
     protected static final PropertyDescriptor SOURCE_AREA_CODE = new PropertyDescriptor.Builder()
             .name("origin-area-code")

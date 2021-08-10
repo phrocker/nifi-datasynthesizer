@@ -21,6 +21,7 @@ package com.mapr.synth.samplers;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.TextNode;
+import com.github.javafaker.Faker;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -41,6 +42,13 @@ public class TextSampler extends FieldSampler {
     protected AtomicReference<Multinomial<String>> distribution = new AtomicReference<>();
     protected Random rand = new Random();
     protected List<String> bagOhWords = new ArrayList<>();
+    Faker faker = new Faker();
+    private enum FakerType{
+        CHUCK_NORRIS,
+        BACK_TO_THE_FUTURE,
+        GAME_OF_THRONES
+    }
+    FakerType myType = FakerType.BACK_TO_THE_FUTURE;
     public TextSampler() {
     }
 
@@ -49,14 +57,44 @@ public class TextSampler extends FieldSampler {
         bagOhWords.add(string);
     }
 
+    @SuppressWarnings("unused")
+    public void setType(String type) {
+        if ("chucknorris".equalsIgnoreCase(type)){
+            myType = FakerType.CHUCK_NORRIS;
+        }
+        else if("backtothefuture".equalsIgnoreCase(type)){
+            myType = FakerType.BACK_TO_THE_FUTURE;
+        }
+        else if("gameofthrones".equalsIgnoreCase(type)){
+            myType = FakerType.GAME_OF_THRONES;
+        }
+
+    }
+
+
     public TextSampler(String resource) {
 
+    }
+
+    private String getString(){
+        if ( bagOhWords.isEmpty()){
+            switch(myType){
+                case CHUCK_NORRIS:
+                    return faker.chuckNorris().fact();
+                case BACK_TO_THE_FUTURE:
+                    return faker.backToTheFuture().quote();
+                case GAME_OF_THRONES:
+                    return faker.gameOfThrones().quote();
+            }
+        }
+
+        return bagOhWords.get( rand.nextInt(bagOhWords.size()));
     }
 
     @Override
     public JsonNode sample() {
       synchronized (this) {
-        return new TextNode( bagOhWords.get( rand.nextInt(bagOhWords.size())) );
+        return new TextNode( getString() );
       }
     }
 }

@@ -1,5 +1,7 @@
 package org.apache.nifi.datasynthesizer.processors.synthesizers;
 
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
@@ -13,6 +15,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
+@InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
+@Tags({"data-synthesis", "record", "phone"})
 public class PhoneNumber extends DataSynthesizerBase {
     protected static final PropertyDescriptor AREA_CODE = new PropertyDescriptor.Builder()
             .name("area-code")

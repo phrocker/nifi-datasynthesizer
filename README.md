@@ -22,6 +22,7 @@ Processor Name | Description
 ------------ | -------------
 DataCorrelator | Data correlator processor that joins two generated records with a free-form schema for a new record that will be emplaced within the input record
 DataSynthesizer | Basic data synthesizer that supports a schema ala log-synth. These Json schemas support a variety of generators. Use this for free-form generation
+CommuterData | Generates commuter data, simulating the drive of a daily commuter. Can specify a home location ( as a zip code ) to center the driver around a location. 
 IotData | IoT data generator that creates a record with a device UUID, IP address, lat/long, date, and temperature.
 PhoneNumber | Generates a phone number. The area code can be specified in the processor configuration
 TextMessage | Generates a text message record containing source phone number, source IMEI, destination phone number, timestamp, and a sample message.
