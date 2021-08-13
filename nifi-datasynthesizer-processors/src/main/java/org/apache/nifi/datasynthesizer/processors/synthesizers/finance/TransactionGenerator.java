@@ -391,20 +391,13 @@ public class TransactionGenerator extends DataSynthesizerBase {
         final String definedSchema = invalid ? new Scanner(TransactionGenerator.class.getResourceAsStream("/generators/transaction.json"), "UTF-8").useDelimiter("\\A").next() :
                 new Scanner(TransactionGenerator.class.getResourceAsStream("/generators/valid_transaction.json"), "UTF-8").useDelimiter("\\A").next();
 
-        /**
-         *
-         */
-
         final SchemaSampler mySampler;
         try{
             mySampler = new SchemaSampler(definedSchema);
         }catch(final IOException e){
             throw new ProcessException(e);
         }
-        /**
-         *
 
-         */
         AtomicReference<Relationship> rel = new AtomicReference<>(REL_SUCCESS);
 
         final AtomicReference<RecordSchema> writeSchema = new AtomicReference<>(null);

@@ -15,25 +15,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.datasynthesizer.processors.synthesizers.iot;
+package org.apache.nifi.datasynthesizer.processors.synthesizers.text;
 
+import com.google.common.base.Splitter;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
-import org.apache.nifi.datasynthesizer.processors.synthesizers.iot.IotData;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordWriter;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
+import org.junit.Assert;
 import org.junit.Test;
 
-public class TestIotData {
+public class TestTextGenerator {
 
 
-    private TestRunner getTestRunner() throws InitializationException {
+    private TestRunner getTestRunner(String area_code) throws InitializationException {
         MockRecordWriter writerService = new MockRecordWriter("", false);
-        final TestRunner runner = TestRunners.newTestRunner(IotData.class);
+        final TestRunner runner = TestRunners.newTestRunner(TextGenerator.class);
         runner.enforceReadStreamsClosed(false);
         runner.setProperty(DataSynthesizer.RECORD_COUNT,"1");
+        runner.setProperty(TextGenerator.WORD_LENGTH,"128");
         runner.addControllerService("writer", writerService);
         runner.enableControllerService(writerService);
         runner.setProperty(DataSynthesizer.RECORD_WRITER,"writer");
@@ -44,13 +46,17 @@ public class TestIotData {
 
 
     @Test
-    public void testGenerator() throws Exception {
-        TestRunner runner = getTestRunner();
+    public void testValidText() throws Exception {
+        final String schema = "{'name':'br', 'class':'browser'}";
+        TestRunner runner = getTestRunner(schema);
+        runner = getTestRunner("497");
         runner.assertValid();
         runner.run();
 
         runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
         final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
+        String text = out.getContent();
+        Assert.assertTrue(129 == Splitter.on(' ').splitToList(text).size());
     }
 
 
