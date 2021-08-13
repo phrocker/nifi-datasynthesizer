@@ -15,10 +15,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.datasynthesizer.processors.synthesizers;
+package org.apache.nifi.datasynthesizer.processors.synthesizers.telephony;
 
-import com.mapr.synth.drive.Commuter;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
+import org.apache.nifi.datasynthesizer.processors.synthesizers.telephony.PhoneNumber;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordWriter;
 import org.apache.nifi.util.MockFlowFile;
@@ -27,20 +27,19 @@ import org.apache.nifi.util.TestRunners;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class TestCommuterData {
+import java.util.regex.Pattern;
+
+public class TestPhoneNumber {
 
 
-    private TestRunner getTestRunner() throws InitializationException {
-        return getTestRunner(null);
-    }
-
-    private TestRunner getTestRunner(String zipCode) throws InitializationException {
+    private TestRunner getTestRunner(String area_code) throws InitializationException {
         MockRecordWriter writerService = new MockRecordWriter("", false);
-        final TestRunner runner = TestRunners.newTestRunner(CommuterData.class);
+        final TestRunner runner = TestRunners.newTestRunner(PhoneNumber.class);
         runner.enforceReadStreamsClosed(false);
+        if (null != area_code) {
+            runner.setProperty(PhoneNumber.AREA_CODE, area_code);
+        }
         runner.setProperty(DataSynthesizer.RECORD_COUNT,"1");
-        if (null != zipCode)
-            runner.setProperty(CommuterData.HOME_LOCATION,zipCode);
         runner.addControllerService("writer", writerService);
         runner.enableControllerService(writerService);
         runner.setProperty(DataSynthesizer.RECORD_WRITER,"writer");
@@ -51,26 +50,34 @@ public class TestCommuterData {
 
 
     @Test
-    public void testGenerator() throws Exception {
-        TestRunner runner = getTestRunner();
+    public void testValidPhoneNumberWithAreaCode() throws Exception {
+        final String schema = "{'name':'br', 'class':'browser'}";
+        TestRunner runner = getTestRunner(schema);
+        runner = getTestRunner("497");
         runner.assertValid();
         runner.run();
 
         runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
         final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
-        System.out.println(out.getContent());
+        String phoneNumber = out.getContent().trim();
+        Pattern pattern = Pattern.compile("^497-(\\d{3}[- .]?)\\d{4}$");
+        Assert.assertTrue(out.getContent() + " Is not a valid phone number",pattern.matcher(phoneNumber).matches());
     }
 
     @Test
-    public void testWithZipCode() throws Exception {
-        TestRunner runner = getTestRunner("10001");
+    public void testValidPhoneNumberWithoutAreaCode() throws Exception {
+        final String schema = "{'name':'br', 'class':'browser'}";
+        TestRunner runner = getTestRunner(schema);
+        runner = getTestRunner(null);
         runner.assertValid();
         runner.run();
 
         runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
         final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
-        Assert.assertTrue(out.getContent().contains("city=NEW YORK"));
-    }
+        String phoneNumber = out.getContent().trim();
+        Pattern pattern = Pattern.compile("^(\\d{3}[- .]?){2}\\d{4}$");
+        Assert.assertTrue(out.getContent() + " Is not a valid phone number",pattern.matcher(phoneNumber).matches());
 
+    }
 
 }

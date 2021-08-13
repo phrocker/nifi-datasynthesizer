@@ -15,18 +15,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.datasynthesizer.processors.synthesizers;
+package org.apache.nifi.datasynthesizer.processors.synthesizers.telephony;
 
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
+import org.apache.nifi.datasynthesizer.processors.synthesizers.telephony.TextMessage;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordWriter;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Assert;
 import org.junit.Test;
-
-import java.util.regex.Pattern;
 
 public class TestTextMessage {
 

@@ -1,4 +1,4 @@
-package org.apache.nifi.datasynthesizer.processors.synthesizers;
+package org.apache.nifi.datasynthesizer.processors.synthesizers.iot;
 
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.documentation.Tags;
@@ -7,7 +7,6 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizerBase;
 import org.apache.nifi.processor.ProcessContext;
 
-import java.nio.file.FileSystems;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;

@@ -77,7 +77,7 @@ public class DataCorrelator extends AbstractProcessor {
             .required(true)
             .build();
 
-    static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
+    protected    static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
             .name("record-writer")
             .displayName("Record Writer")
             .description("Specifies the Controller Service to use for writing out the records")
@@ -103,7 +103,7 @@ public class DataCorrelator extends AbstractProcessor {
     }
 
 
-    private RecordReaderFactory recordParserFactory;
+    protected RecordReaderFactory recordParserFactory;
 
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
@@ -269,7 +269,12 @@ public class DataCorrelator extends AbstractProcessor {
                                     final DataOutputStream dos = new DataOutputStream(bos);
                                     
                                     RecordSetWriter rsw = JsonWriter.createWriter(getLogger(), reader.getSchema(), dos, obj);
-                                    rsw.write(record);
+                                    try {
+                                        rsw.write(record);
+                                    }
+                                    catch(Exception e){
+                                        continue;
+                                    }
                                     rsw.close();
 
                                     ObjectMapper objectMapper = new ObjectMapper();

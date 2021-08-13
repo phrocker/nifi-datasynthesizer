@@ -1,4 +1,4 @@
-package org.apache.nifi.datasynthesizer.processors.synthesizers;
+package org.apache.nifi.datasynthesizer.processors.synthesizers.cars;
 
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.documentation.Tags;

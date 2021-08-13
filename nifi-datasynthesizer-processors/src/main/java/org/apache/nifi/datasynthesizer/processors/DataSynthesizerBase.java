@@ -103,9 +103,7 @@ public class DataSynthesizerBase extends AbstractProcessor {
     protected ThreadLocal<SchemaSampler> sampler = new ThreadLocal<>();
 
 
-
-    @Override
-    public void onTrigger(ProcessContext processContext, ProcessSession processSession) throws ProcessException {
+    protected void createRecords(final ProcessSession processSession, final ProcessContext processContext, final int recordCount){
 
         final SchemaSampler mySampler;
         try {
@@ -137,7 +135,6 @@ public class DataSynthesizerBase extends AbstractProcessor {
         final RecordSetWriterFactory writerFactory = processContext.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
 
 
-        int recordCount = processContext.getProperty(RECORD_COUNT).asInteger();
         final RecordSchema schema;
         {
             final JsonNode created = mySampler.sample();
@@ -171,38 +168,38 @@ public class DataSynthesizerBase extends AbstractProcessor {
             }
         }
 
-            final FlowFile flowFile = processSession.write(processSession.create(), (inputStream, out) -> {
+        final FlowFile flowFile = processSession.write(processSession.create(), (inputStream, out) -> {
             Map<String, String> obj = new HashMap<>();
             try {
                 final RecordSchema writeSchema = writerFactory.getSchema(obj, schema);
                 try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out)) {
 
-                IntStream.range(0, recordCount).forEach(x -> {
+                    IntStream.range(0, recordCount).forEach(x -> {
 
 //                    JsonTreeReader reader = new JsonTreeReader();
-  //                  Map<String, String> variables = new HashMap<>();
+                        //                  Map<String, String> variables = new HashMap<>();
 
 
-                    JsonNode created = mySampler.sample();
-                    String data = created.toString();
+                        JsonNode created = mySampler.sample();
+                        String data = created.toString();
 
-                    try {
-                        final InputStream targetStream = IOUtils.toInputStream(data, StandardCharsets.UTF_8.name());
-                        JsonTreeRowRecordReader rreader = new JsonTreeRowRecordReader(targetStream, getLogger(), schema, "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
-                        Record record = rreader.nextRecord();
+                        try {
+                            final InputStream targetStream = IOUtils.toInputStream(data, StandardCharsets.UTF_8.name());
+                            JsonTreeRowRecordReader rreader = new JsonTreeRowRecordReader(targetStream, getLogger(), schema, "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+                            Record record = rreader.nextRecord();
 
-                        writer.write(record);
+                            writer.write(record);
 
 
-                    } catch (IOException e) {
-                        throw new ProcessException(e);
-                    } catch (MalformedRecordException e) {
-                        throw new ProcessException(e);
-                    }
+                        } catch (IOException e) {
+                            throw new ProcessException(e);
+                        } catch (MalformedRecordException e) {
+                            throw new ProcessException(e);
+                        }
 
-                });
+                    });
 
-            }
+                }
             }catch (IOException e) {
                 throw new ProcessException(e);
             } catch (SchemaNotFoundException e) {
@@ -213,8 +210,11 @@ public class DataSynthesizerBase extends AbstractProcessor {
         });
 
         processSession.transfer(flowFile, REL_SUCCESS);
+    }
 
-
-
+    @Override
+    public void onTrigger(ProcessContext processContext, ProcessSession processSession) throws ProcessException {
+        int recordCount = processContext.getProperty(RECORD_COUNT).asInteger();
+        createRecords(processSession,processContext,recordCount);
     }
 }

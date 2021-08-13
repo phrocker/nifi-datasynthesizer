@@ -15,18 +15,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.datasynthesizer.processors.synthesizers;
+package org.apache.nifi.datasynthesizer.processors.synthesizers.iot;
 
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
+import org.apache.nifi.datasynthesizer.processors.synthesizers.iot.IotData;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordWriter;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Assert;
 import org.junit.Test;
-
-import java.util.regex.Pattern;
 
 public class TestIotData {
 

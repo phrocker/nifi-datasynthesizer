@@ -15,33 +15,47 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.datasynthesizer.processors.synthesizers;
+package org.apache.nifi.datasynthesizer.processors.synthesizers.finance;
 
-import com.github.javafaker.Faker;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
-import org.apache.nifi.datasynthesizer.processors.synthesizers.PhoneNumber;
+import org.apache.nifi.datasynthesizer.processors.synthesizers.finance.TransactionGenerator;
+import org.apache.nifi.datasynthesizer.processors.synthesizers.iot.IotData;
 import org.apache.nifi.reporting.InitializationException;
+import org.apache.nifi.serialization.record.MockRecordParser;
 import org.apache.nifi.serialization.record.MockRecordWriter;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.HashSet;
-import java.util.Set;
-import java.util.regex.Pattern;
-
-public class TestPhoneNumber {
+public class TestTransactions {
 
 
-    private TestRunner getTestRunner(String area_code) throws InitializationException {
+    private TestRunner getTestRunner() throws InitializationException {
+        return getTestRunner(null);
+    }
+
+    private TestRunner getTestRunner(String zipCode) throws InitializationException {
         MockRecordWriter writerService = new MockRecordWriter("", false);
-        final TestRunner runner = TestRunners.newTestRunner(PhoneNumber.class);
+        MockRecordParser readerService = new MockRecordParser();
+        final TestRunner runner = TestRunners.newTestRunner(TransactionGenerator.class);
         runner.enforceReadStreamsClosed(false);
-        if (null != area_code) {
-            runner.setProperty(PhoneNumber.AREA_CODE, area_code);
-        }
+        runner.setProperty(TransactionGenerator.TERMINALS_TO_GENERATE,"5");
+        runner.setProperty(TransactionGenerator.MAX_TRANSACTIONS,"5");
+        runner.addControllerService("writer", writerService);
+        runner.addControllerService("reader", readerService);
+        runner.enableControllerService(writerService);
+        runner.enableControllerService(readerService);
+        runner.setProperty(DataSynthesizer.RECORD_COUNT,"1");
+        runner.setProperty(DataSynthesizer.RECORD_WRITER,"writer");
+        runner.setProperty(TransactionGenerator.RECORD_READER_FACTORY,"reader");
+        return runner;
+    }
+
+    private TestRunner getIot() throws InitializationException {
+        MockRecordWriter writerService = new MockRecordWriter("", false);
+        final TestRunner runner = TestRunners.newTestRunner(IotData.class);
+        runner.enforceReadStreamsClosed(false);
         runner.setProperty(DataSynthesizer.RECORD_COUNT,"1");
         runner.addControllerService("writer", writerService);
         runner.enableControllerService(writerService);
@@ -53,34 +67,14 @@ public class TestPhoneNumber {
 
 
     @Test
-    public void testValidPhoneNumberWithAreaCode() throws Exception {
-        final String schema = "{'name':'br', 'class':'browser'}";
-        TestRunner runner = getTestRunner(schema);
-        runner = getTestRunner("497");
+    public void testNoInput() throws Exception {
+
+        TestRunner runner = getTestRunner();
         runner.assertValid();
         runner.run();
-
         runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
         final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
-        String phoneNumber = out.getContent().trim();
-        Pattern pattern = Pattern.compile("^497-(\\d{3}[- .]?)\\d{4}$");
-        Assert.assertTrue(out.getContent() + " Is not a valid phone number",pattern.matcher(phoneNumber).matches());
     }
 
-    @Test
-    public void testValidPhoneNumberWithoutAreaCode() throws Exception {
-        final String schema = "{'name':'br', 'class':'browser'}";
-        TestRunner runner = getTestRunner(schema);
-        runner = getTestRunner(null);
-        runner.assertValid();
-        runner.run();
-
-        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
-        final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
-        String phoneNumber = out.getContent().trim();
-        Pattern pattern = Pattern.compile("^(\\d{3}[- .]?){2}\\d{4}$");
-        Assert.assertTrue(out.getContent() + " Is not a valid phone number",pattern.matcher(phoneNumber).matches());
-
-    }
 
 }

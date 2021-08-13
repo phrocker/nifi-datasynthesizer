@@ -56,9 +56,12 @@ public class ZipSampler extends FieldSampler {
     private LocationBound limits = null;
     private boolean verbose = true;
     private int selectedIndex = -1;
+    private final AddressSampler addressSampler;
+    private boolean useAddress = false;
 
     public ZipSampler() {
         try {
+            addressSampler = new AddressSampler();
             List<String> names = null;
             //noinspection UnstableApiUsage
             for (String line : Resources.readLines(Resources.getResource("zip.csv"), Charsets.UTF_8)) {
@@ -101,6 +104,11 @@ public class ZipSampler extends FieldSampler {
     @SuppressWarnings("UnusedDeclaration")
     public void setCountry(String country) {
         this.country = country;
+    }
+
+    @SuppressWarnings("UnusedDeclaration")
+    public void setUseAddress(String useAddressStr) {
+        this.useAddress = Boolean.valueOf(useAddressStr);
     }
 
     @SuppressWarnings("UnusedDeclaration")
@@ -240,6 +248,10 @@ public class ZipSampler extends FieldSampler {
 
             if (!StringUtils.isEmpty(country)){
                 r.set("country",new TextNode(country));
+            }
+
+            if (useAddress){
+                r.set("address",addressSampler.sample());
             }
 
             if (latitudeFuzz > 0 || longitudeFuzz > 0) {

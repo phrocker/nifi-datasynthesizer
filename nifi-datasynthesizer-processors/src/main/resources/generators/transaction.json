@@ -1,0 +1,17 @@
+[
+  {
+    "name": "transaction_id",
+    "class": "uuid"
+  },
+  {
+    "name": "transaction_timestamp",
+    "class": "date",
+    "format":"s"
+  },
+  {
+    "name": "transaction_amount",
+    "class": "int",
+    "min": 0,
+    "max": 50000
+  }
+]

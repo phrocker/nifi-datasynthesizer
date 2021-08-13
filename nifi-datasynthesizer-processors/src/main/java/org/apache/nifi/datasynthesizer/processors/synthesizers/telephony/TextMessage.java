@@ -1,4 +1,4 @@
-package org.apache.nifi.datasynthesizer.processors.synthesizers;
+package org.apache.nifi.datasynthesizer.processors.synthesizers.telephony;
 
 import com.github.javafaker.Faker;
 import org.apache.nifi.annotation.behavior.InputRequirement;
