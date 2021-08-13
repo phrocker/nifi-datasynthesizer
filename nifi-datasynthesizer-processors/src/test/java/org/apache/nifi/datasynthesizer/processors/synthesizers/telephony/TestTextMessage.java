@@ -56,8 +56,6 @@ public class TestTextMessage {
 
         runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
         final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
-        String phoneNumber = out.getContent().trim();
-        System.out.println(phoneNumber);
     }
 
 

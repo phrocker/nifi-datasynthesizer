@@ -81,4 +81,39 @@ public class MarkovChain {
         }
     }
 
+    /**
+     * Adapted from open source code.
+     * @param expectedSize
+     * @return
+     * @throws IOException
+     */
+    public String produceText(int expectedSize) throws IOException {
+        int n = 0;
+        int rn = r.nextInt(markovDict.size());
+        String prefix = (String) markovDict.keySet().toArray()[rn];
+        List<String> output = new ArrayList<>(Arrays.asList(prefix.split(" ")));
+        long totalSize = 0;
+        while (true) {
+            List<String> suffix = markovDict.get(prefix);
+            if (suffix.size() == 1) {
+                if (totalSize + output.size() +  suffix.get(0).length() > expectedSize){
+                    return output.stream().reduce("", (a, b) -> a + " " + b);
+                }
+                if (Objects.equals(suffix.get(0), "")) return output.stream().reduce("", (a, b) -> a + " " + b);
+                output.add(suffix.get(0));
+                totalSize += suffix.get(0).length();
+            } else {
+                rn = r.nextInt(suffix.size());
+                if (totalSize + output.size() + suffix.get(rn).length() > expectedSize){
+                    return output.stream().reduce("", (a, b) -> a + " " + b);
+                }
+                output.add(suffix.get(rn));
+                totalSize += suffix.get(rn).length();
+            }
+            if (totalSize+output.size()  >= expectedSize) return output.stream().reduce("", (a, b) -> a + " " + b);
+            n++;
+            prefix = output.stream().skip(n).limit(keySize).reduce("", (a, b) -> a + " " + b).trim();
+        }
+    }
+
 }
