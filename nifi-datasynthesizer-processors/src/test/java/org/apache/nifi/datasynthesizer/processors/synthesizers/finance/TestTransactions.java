@@ -18,7 +18,6 @@
 package org.apache.nifi.datasynthesizer.processors.synthesizers.finance;
 
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
-import org.apache.nifi.datasynthesizer.processors.synthesizers.finance.TransactionGenerator;
 import org.apache.nifi.datasynthesizer.processors.synthesizers.iot.IotData;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordParser;
@@ -38,17 +37,17 @@ public class TestTransactions {
     private TestRunner getTestRunner(String zipCode) throws InitializationException {
         MockRecordWriter writerService = new MockRecordWriter("", false);
         MockRecordParser readerService = new MockRecordParser();
-        final TestRunner runner = TestRunners.newTestRunner(TransactionGenerator.class);
+        final TestRunner runner = TestRunners.newTestRunner(Transactions.class);
         runner.enforceReadStreamsClosed(false);
-        runner.setProperty(TransactionGenerator.TERMINALS_TO_GENERATE,"5");
-        runner.setProperty(TransactionGenerator.MAX_TRANSACTIONS,"5");
+        runner.setProperty(Transactions.TERMINALS_TO_GENERATE,"5");
+        runner.setProperty(Transactions.MAX_TRANSACTIONS,"5");
         runner.addControllerService("writer", writerService);
         runner.addControllerService("reader", readerService);
         runner.enableControllerService(writerService);
         runner.enableControllerService(readerService);
         runner.setProperty(DataSynthesizer.RECORD_COUNT,"1");
         runner.setProperty(DataSynthesizer.RECORD_WRITER,"writer");
-        runner.setProperty(TransactionGenerator.RECORD_READER_FACTORY,"reader");
+        runner.setProperty(Transactions.RECORD_READER_FACTORY,"reader");
         return runner;
     }
 

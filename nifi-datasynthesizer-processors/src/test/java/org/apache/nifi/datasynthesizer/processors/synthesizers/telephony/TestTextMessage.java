@@ -18,7 +18,6 @@
 package org.apache.nifi.datasynthesizer.processors.synthesizers.telephony;
 
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizer;
-import org.apache.nifi.datasynthesizer.processors.synthesizers.telephony.TextMessage;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordWriter;
 import org.apache.nifi.util.MockFlowFile;
@@ -56,6 +55,7 @@ public class TestTextMessage {
 
         runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
         final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
+        System.out.println(out.getContent());
     }
 
 

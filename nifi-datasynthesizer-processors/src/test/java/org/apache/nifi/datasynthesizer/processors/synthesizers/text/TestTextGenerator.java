@@ -56,6 +56,7 @@ public class TestTextGenerator {
         runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
         final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
         String text = out.getContent();
+        System.out.println(text);
         Assert.assertTrue(129 == Splitter.on(' ').splitToList(text).size());
     }
 

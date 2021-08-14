@@ -41,7 +41,7 @@ import java.util.stream.IntStream;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_ALLOWED)
 @Tags({"data-synthesis", "record"})
-public class TransactionGenerator extends DataSynthesizerBase {
+public class Transactions extends DataSynthesizerBase {
 
     protected static final PropertyDescriptor TERMINALS_TO_GENERATE = new PropertyDescriptor.Builder()
             .name("terminal-generation-count")
@@ -126,7 +126,7 @@ public class TransactionGenerator extends DataSynthesizerBase {
             .description("Correlation relationship")
             .build();
 
-    public TransactionGenerator(){
+    public Transactions(){
 
     }
 
@@ -147,7 +147,7 @@ public class TransactionGenerator extends DataSynthesizerBase {
         if (context.getProperty(TERMINALS_TO_GENERATE).isSet()){
             terminals = context.getProperty(TERMINALS_TO_GENERATE).asInteger();
         }
-        String terminalSchema = new Scanner(TransactionGenerator.class.getResourceAsStream("/generators/terminal.json"), "UTF-8").useDelimiter("\\A").next();
+        String terminalSchema = new Scanner(Transactions.class.getResourceAsStream("/generators/terminal.json"), "UTF-8").useDelimiter("\\A").next();
 
         ZipSampler zipSampler = new ZipSampler();
         zipSampler.setUseAddress("true");
@@ -269,8 +269,8 @@ public class TransactionGenerator extends DataSynthesizerBase {
         final RecordSetWriterFactory writerFactory = processContext.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
 
         boolean invalid = processContext.getProperty(GENERATE_INVALID_TRANSACTIONS).asBoolean();
-        final String definedSchema = invalid ? new Scanner(TransactionGenerator.class.getResourceAsStream("/generators/transaction.json"), "UTF-8").useDelimiter("\\A").next() :
-                new Scanner(TransactionGenerator.class.getResourceAsStream("/generators/valid_transaction.json"), "UTF-8").useDelimiter("\\A").next();
+        final String definedSchema = invalid ? new Scanner(Transactions.class.getResourceAsStream("/generators/transaction.json"), "UTF-8").useDelimiter("\\A").next() :
+                new Scanner(Transactions.class.getResourceAsStream("/generators/valid_transaction.json"), "UTF-8").useDelimiter("\\A").next();
 
         final SchemaSampler mySampler;
         try{
@@ -388,8 +388,8 @@ public class TransactionGenerator extends DataSynthesizerBase {
 
         final RecordSetWriterFactory writerFactory = processContext.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
         boolean invalid = processContext.getProperty(GENERATE_INVALID_TRANSACTIONS).asBoolean();
-        final String definedSchema = invalid ? new Scanner(TransactionGenerator.class.getResourceAsStream("/generators/transaction.json"), "UTF-8").useDelimiter("\\A").next() :
-                new Scanner(TransactionGenerator.class.getResourceAsStream("/generators/valid_transaction.json"), "UTF-8").useDelimiter("\\A").next();
+        final String definedSchema = invalid ? new Scanner(Transactions.class.getResourceAsStream("/generators/transaction.json"), "UTF-8").useDelimiter("\\A").next() :
+                new Scanner(Transactions.class.getResourceAsStream("/generators/valid_transaction.json"), "UTF-8").useDelimiter("\\A").next();
 
         final SchemaSampler mySampler;
         try{

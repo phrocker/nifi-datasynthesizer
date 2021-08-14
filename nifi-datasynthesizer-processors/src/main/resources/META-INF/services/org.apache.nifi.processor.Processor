@@ -19,4 +19,4 @@ org.apache.nifi.datasynthesizer.processors.synthesizers.telephony.PhoneNumber
 org.apache.nifi.datasynthesizer.processors.synthesizers.telephony.TextMessage
 org.apache.nifi.datasynthesizer.processors.synthesizers.iot.IotData
 org.apache.nifi.datasynthesizer.processors.synthesizers.cars.CommuterData
-org.apache.nifi.datasynthesizer.processors.synthesizers.finance.TransactionGenerator
+org.apache.nifi.datasynthesizer.processors.synthesizers.finance.Transactions

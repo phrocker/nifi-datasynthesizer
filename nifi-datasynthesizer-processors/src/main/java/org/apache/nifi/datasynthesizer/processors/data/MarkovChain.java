@@ -1,4 +1,4 @@
-package org.apache.nifi.datasynthesizer.processors.synthesizers.text;
+package org.apache.nifi.datasynthesizer.processors.data;
 
 import com.google.common.base.Splitter;
 import org.apache.commons.io.IOUtils;

@@ -9,7 +9,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizerBase;
-import org.apache.nifi.datasynthesizer.processors.synthesizers.text.MarkovChain;
+import org.apache.nifi.datasynthesizer.processors.data.MarkovChain;
 import org.apache.nifi.datasynthesizer.processors.synthesizers.text.TextGenerator;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.util.StandardValidators;
