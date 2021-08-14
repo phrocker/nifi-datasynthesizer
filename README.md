@@ -26,5 +26,7 @@ CommuterData | Generates commuter data, simulating the drive of a daily commuter
 IotData | IoT data generator that creates a record with a device UUID, IP address, lat/long, date, and temperature.
 PhoneNumber | Generates a phone number record. The area code can be specified in the processor configuration
 TextMessage | Generates a text message records containing source phone number, source IMEI, destination phone number, timestamp, and a sample message.
+TextGenerator | Generates a block of free-form text. 
+Transactions | Credit Card transaction generator
 
 All processors have an output record writer configuration and the number of output records.

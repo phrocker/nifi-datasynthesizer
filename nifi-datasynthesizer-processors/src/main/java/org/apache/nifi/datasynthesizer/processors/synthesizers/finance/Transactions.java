@@ -453,8 +453,6 @@ public class Transactions extends DataSynthesizerBase {
                             JsonTreeRowRecordReader rreader = new JsonTreeRowRecordReader(targetStream, getLogger(), schema, "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
                             Record newRecord = rreader.nextRecord();
 
-
-
                             if (null == writeSchema.get()){
                                 writeSchema.set(writerFactory.getSchema(obj, schema));
                                 recordWriter.set(writerFactory.createWriter(getLogger(), writeSchema.get(), out));
@@ -464,11 +462,8 @@ public class Transactions extends DataSynthesizerBase {
                     }while ((record = reader.nextRecord()) != null);
 
                 } catch (MalformedRecordException e) {
-                    // TODO Auto-generated catch block
                     throw new ProcessException(e);
                 }
-
-
 
             }catch (IOException e) {
                 throw new ProcessException(e);
