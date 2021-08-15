@@ -30,12 +30,12 @@ import org.junit.Test;
 public class TestTextGenerator {
 
 
-    private TestRunner getTestRunner(String area_code) throws InitializationException {
+    private TestRunner getTestRunner(int wordLength) throws InitializationException {
         MockRecordWriter writerService = new MockRecordWriter("", false);
         final TestRunner runner = TestRunners.newTestRunner(TextGenerator.class);
         runner.enforceReadStreamsClosed(false);
         runner.setProperty(DataSynthesizer.RECORD_COUNT,"1");
-        runner.setProperty(TextGenerator.WORD_LENGTH,"128");
+        runner.setProperty(TextGenerator.WORD_LENGTH,Integer.valueOf(wordLength).toString());
         runner.addControllerService("writer", writerService);
         runner.enableControllerService(writerService);
         runner.setProperty(DataSynthesizer.RECORD_WRITER,"writer");
@@ -48,8 +48,7 @@ public class TestTextGenerator {
     @Test
     public void testValidText() throws Exception {
         final String schema = "{'name':'br', 'class':'browser'}";
-        TestRunner runner = getTestRunner(schema);
-        runner = getTestRunner("497");
+        TestRunner runner = getTestRunner(128);
         runner.assertValid();
         runner.run();
 
@@ -58,6 +57,34 @@ public class TestTextGenerator {
         String text = out.getContent();
         System.out.println(text);
         Assert.assertTrue(129 == Splitter.on(' ').splitToList(text).size());
+    }
+
+    @Test
+    public void testValidTextShort() throws Exception {
+        final String schema = "{'name':'br', 'class':'browser'}";
+        TestRunner runner = getTestRunner(5);
+        runner.assertValid();
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
+        final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
+        String text = out.getContent();
+        System.out.println(text);
+        Assert.assertTrue(6 == Splitter.on(' ').splitToList(text).size());
+    }
+
+    @Test
+    public void testValidTextZero() throws Exception {
+        final String schema = "{'name':'br', 'class':'browser'}";
+        TestRunner runner = getTestRunner(0);
+        runner.assertValid();
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
+        final MockFlowFile out = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
+        String text = out.getContent();
+        System.out.println(text);
+        Assert.assertTrue(1 == Splitter.on(' ').splitToList(text).size());
     }
 
 

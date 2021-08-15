@@ -55,6 +55,9 @@ public class TextGenerator extends DataSynthesizerBase {
             throw new InstantiationException(e.getMessage());
         }
         textLength = context.getProperty(WORD_LENGTH).asInteger();
+        if (textLength < 0){
+            textLength=1;
+        }
     }
 
     @Override
