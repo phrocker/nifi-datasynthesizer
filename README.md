@@ -14,6 +14,8 @@
 -->
 # NiFi DataSynthesizer
 
+[![Maven Build](https://github.com/phrocker/nifi-datasynthesizer/actions/workflows/maven.yml/badge.svg)](https://github.com/phrocker/nifi-datasynthesizer/actions/workflows/maven.yml)
+
 This is a basic data synthesizer NAR which utilizes [log-synth](https://github.com/tdunning/log-synth) and [Java Faker](https://github.com/DiUS/java-faker) to generate semi-realistic data within records.
 
 The package contains the following processors:
