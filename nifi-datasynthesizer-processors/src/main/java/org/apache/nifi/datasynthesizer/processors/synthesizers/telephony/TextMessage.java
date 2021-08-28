@@ -103,7 +103,7 @@ public class TextMessage extends DataSynthesizerBase {
                     "          \"class\":\"sequence\",\n" +
                     "          \"length\":3,\n" +
                     "          \"array\":[\n" +
-                    "              { \"class\": \"int\", \"min\": " +String.valueOf(source_area_min) + ", \"max\": " + String.valueOf(source_area_max) + "},\n" +
+                    "              { \"class\": \"int\", \"min\": " + source_area_min + ", \"max\": " + source_area_max + "},\n" +
                     "              { \"class\": \"int\", \"min\": 100, \"max\": 999},\n" +
                     "              { \"class\": \"int\", \"min\": 1000, \"max\": 9999}\n" +
                     "          ]\n" +
@@ -112,7 +112,7 @@ public class TextMessage extends DataSynthesizerBase {
                     "          \"class\":\"sequence\",\n" +
                     "          \"length\":3,\n" +
                     "          \"array\":[\n" +
-                    "              { \"class\": \"int\", \"min\": " +String.valueOf(destination_area_min) + ", \"max\": " + String.valueOf(destination_area_max) + "},\n" +
+                    "              { \"class\": \"int\", \"min\": " + destination_area_min + ", \"max\": " + destination_area_max + "},\n" +
                     "              { \"class\": \"int\", \"min\": 100, \"max\": 999},\n" +
                     "              { \"class\": \"int\", \"min\": 1000, \"max\": 9999}\n" +
                     "          ]\n" +

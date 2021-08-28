@@ -28,7 +28,7 @@ import java.util.*;
  * https://rosettacode.org/wiki/Markov_chain_text_generator#Java
  */
 public class MarkovChain {
-    private static Random r = new Random();
+    private static final Random r = new Random();
 
     Map<String, List<String>> markovDict = new HashMap<>();
 

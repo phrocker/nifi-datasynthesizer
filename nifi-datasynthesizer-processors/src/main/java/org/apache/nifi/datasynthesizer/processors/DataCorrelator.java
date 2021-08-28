@@ -293,7 +293,7 @@ public class DataCorrelator extends AbstractProcessor {
                                     rsw.close();
 
                                     ObjectMapper objectMapper = new ObjectMapper();
-                                    ObjectNode node = ObjectNode.class.cast( objectMapper.readTree(bos.toString()) );
+                                    ObjectNode node = (ObjectNode) objectMapper.readTree(bos.toString());
                                     
                                     com.fasterxml.jackson.databind.JsonNode newNode = mySampler.sample();
                                     if (selectObject)

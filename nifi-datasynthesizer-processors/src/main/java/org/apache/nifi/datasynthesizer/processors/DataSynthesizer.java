@@ -25,6 +25,8 @@ import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.datasynthesizer.SamplerBase;
+import org.apache.nifi.datasynthesizer.services.SchemaLookupService;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.json.JsonSchemaInference;
 import org.apache.nifi.json.JsonTreeRowRecordReader;
@@ -67,6 +69,7 @@ public class DataSynthesizer extends DataSynthesizerBase {
         properties.add(SCHEMA);
         properties.add(RECORD_COUNT);
         properties.add(RECORD_WRITER);
+        properties.add(SCHEMA_LOOKUP_SERVICE);
         return properties;
     }
 
@@ -83,13 +86,8 @@ public class DataSynthesizer extends DataSynthesizerBase {
     @Override
     protected Collection<ValidationResult> customValidate(ValidationContext validationContext) {
         Collection<ValidationResult> set = Collections.emptySet();
-
         return set;
     }
-
-    protected String definedSchema = null;
-
-    protected ThreadLocal<SchemaSampler> sampler = new ThreadLocal<>();
 
 
     @OnScheduled
@@ -98,14 +96,21 @@ public class DataSynthesizer extends DataSynthesizerBase {
         if (context.getProperty(SCHEMA).isSet()) {
             definedSchema = context.getProperty(SCHEMA).getValue();
         }
-
+        if (context.getProperty(SCHEMA_LOOKUP_SERVICE).isSet()) {
+            schemaLookupService = context.getProperty(SCHEMA_LOOKUP_SERVICE).asControllerService(SchemaLookupService.class);
+        }
     }
-
 
     @Override
     public void onTrigger(ProcessContext processContext, ProcessSession processSession) throws ProcessException {
+        int recordCount = processContext.getProperty(RECORD_COUNT).asInteger();
+        createRecords(processSession,processContext,recordCount);
+    }
+/*
+    @Override
+    public void onTrigger(ProcessContext processContext, ProcessSession processSession) throws ProcessException {
 
-        final SchemaSampler mySampler;
+        final SamplerBase mySampler;
         try {
             if (definedSchema != null) {
                 if (sampler.get() == null) {
@@ -138,7 +143,7 @@ public class DataSynthesizer extends DataSynthesizerBase {
         int recordCount = processContext.getProperty(RECORD_COUNT).asInteger();
         final RecordSchema schema;
         {
-            final JsonNode created = mySampler.sample();
+            final JsonNode created = mySampler.nextSample().orElseThrow();
 
             try {
                 String data = created.toString();
@@ -177,11 +182,7 @@ public class DataSynthesizer extends DataSynthesizerBase {
 
                 IntStream.range(0, recordCount).forEach(x -> {
 
-//                    JsonTreeReader reader = new JsonTreeReader();
-  //                  Map<String, String> variables = new HashMap<>();
-
-
-                    JsonNode created = mySampler.sample();
+                    JsonNode created = mySampler.nextSample().orElseThrow();
                     String data = created.toString();
 
                     try {
@@ -214,5 +215,5 @@ public class DataSynthesizer extends DataSynthesizerBase {
 
 
 
-    }
+    }*/
 }

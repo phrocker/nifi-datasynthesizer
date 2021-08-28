@@ -19,12 +19,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.mapr.synth.samplers.SchemaSampler;
 import org.apache.commons.io.IOUtils;
-import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.documentation.Tags;
-import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.datasynthesizer.SamplerBase;
+import org.apache.nifi.datasynthesizer.services.LookupSampler;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.json.JsonSchemaInference;
 import org.apache.nifi.json.JsonTreeRowRecordReader;
@@ -44,7 +44,9 @@ import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.codehaus.jackson.map.ObjectMapper;
+import org.apache.nifi.datasynthesizer.services.SchemaLookupService;
 
+import javax.xml.validation.Schema;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -58,10 +60,19 @@ public class DataSynthesizerBase extends AbstractProcessor {
     public static final PropertyDescriptor SCHEMA = new PropertyDescriptor.Builder()
             .name("schema")
             .displayName("Record Schema")
-            .description("If defined, this schema will be used. Otherwise flow input will be used")
+            .description("If defined, this schema will be used. If a schema lookup service is used this will function as the name to lookup against")
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .required(false)
             .build();
+
+    public static final PropertyDescriptor SCHEMA_LOOKUP_SERVICE = new PropertyDescriptor.Builder()
+            .name("schema-lookup")
+            .displayName("Schema Lookup Service")
+            .description("Specifies the Controller in which we will look-up service")
+            .identifiesControllerService(SchemaLookupService.class)
+            .required(false)
+            .build();
+
 
     public static final PropertyDescriptor RECORD_COUNT = new PropertyDescriptor.Builder()
             .name("record-count")
@@ -80,6 +91,7 @@ public class DataSynthesizerBase extends AbstractProcessor {
             .required(true)
             .build();
 
+    protected SchemaLookupService schemaLookupService = null;
 
 
     public DataSynthesizerBase(){
@@ -115,20 +127,32 @@ public class DataSynthesizerBase extends AbstractProcessor {
 
     protected String definedSchema = null;
 
-    protected ThreadLocal<SchemaSampler> sampler = new ThreadLocal<>();
+    protected ThreadLocal<SamplerBase> sampler = new ThreadLocal<>();
 
+    protected void loadSchema() throws IOException {
+        if (null != schemaLookupService)
+        {
+            Optional<JsonNode> result = schemaLookupService.sampleSchema(definedSchema);
+            if (result.isPresent()){
+                sampler.set(new LookupSampler(schemaLookupService,definedSchema));
+            }
+        }
+        if (sampler.get() == null) {
+            try {
+                sampler.set(new SchemaSampler(definedSchema));
+            } catch (MismatchedInputException mie) {
+                sampler.set(new SchemaSampler("[" + definedSchema + "]"));
+            }
+        }
+    }
 
     protected void createRecords(final ProcessSession processSession, final ProcessContext processContext, final int recordCount){
 
-        final SchemaSampler mySampler;
+        final SamplerBase mySampler;
         try {
             if (definedSchema != null) {
                 if (sampler.get() == null) {
-                    try {
-                        sampler.set(new SchemaSampler(definedSchema));
-                    }catch( MismatchedInputException mie){
-                        sampler.set(new SchemaSampler("[" + definedSchema + "]"));
-                    }
+                    loadSchema();
                 }
                 mySampler = sampler.get();
             } else {
@@ -144,7 +168,6 @@ public class DataSynthesizerBase extends AbstractProcessor {
                 processSession.remove(ff);
             }
         } catch (IOException e) {
-            e.printStackTrace();
             throw new ProcessException("Could not create schema",e);
         }
         final RecordSetWriterFactory writerFactory = processContext.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
@@ -152,7 +175,7 @@ public class DataSynthesizerBase extends AbstractProcessor {
 
         final RecordSchema schema;
         {
-            final JsonNode created = mySampler.sample();
+            final JsonNode created = mySampler.nextSample().orElseThrow();
 
             try {
                 String data = created.toString();
@@ -191,11 +214,8 @@ public class DataSynthesizerBase extends AbstractProcessor {
 
                     IntStream.range(0, recordCount).forEach(x -> {
 
-//                    JsonTreeReader reader = new JsonTreeReader();
-                        //                  Map<String, String> variables = new HashMap<>();
 
-
-                        JsonNode created = mySampler.sample();
+                        JsonNode created = mySampler.nextSample().orElseThrow();
                         String data = created.toString();
 
                         try {

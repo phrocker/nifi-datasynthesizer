@@ -62,7 +62,7 @@ public class PhoneNumber extends DataSynthesizerBase {
                 "          \"class\":\"sequence\",\n" +
                 "          \"length\":3,\n" +
                 "          \"array\":[\n" +
-                "              { \"class\": \"int\", \"min\": " +String.valueOf(area_min) + ", \"max\": " + String.valueOf(area_max) + "},\n" +
+                "              { \"class\": \"int\", \"min\": " + area_min + ", \"max\": " + area_max + "},\n" +
                 "              { \"class\": \"int\", \"min\": 100, \"max\": 999},\n" +
                 "              { \"class\": \"int\", \"min\": 1000, \"max\": 9999}\n" +
                 "          ]\n" +

@@ -111,7 +111,7 @@ public class Transactions extends DataSynthesizerBase {
             .required(false)
             .build();
 
-    private Map<String, org.codehaus.jackson.JsonNode> terminalMap = new HashMap<>();
+    private final Map<String, org.codehaus.jackson.JsonNode> terminalMap = new HashMap<>();
 
     Faker faker = new Faker();
 
@@ -123,7 +123,7 @@ public class Transactions extends DataSynthesizerBase {
 
     protected int maxTransactions = 1;
 
-    private Random rand = new Random();
+    private final Random rand = new Random();
 
     protected RecordReaderFactory recordParserFactory;
 
@@ -443,7 +443,7 @@ public class Transactions extends DataSynthesizerBase {
                         }
 
                         ObjectMapper objectMapper = new ObjectMapper();
-                        ObjectNode node = ObjectNode.class.cast( objectMapper.readTree(tree ));
+                        ObjectNode node = (ObjectNode) objectMapper.readTree(tree);
                         node.put("transactions", new ArrayNode(JsonNodeFactory.instance));
                         int max =(maxTransactions > 1 ? rand.nextInt(5) : isFixed ? maxTransactions : rand.nextInt(maxTransactions));
                         if (0 == max && processContext.getProperty(ALLOW_ZERO_TRANSACTIONS).asBoolean()){

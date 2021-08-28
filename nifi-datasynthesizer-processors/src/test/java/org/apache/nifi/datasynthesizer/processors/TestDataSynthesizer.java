@@ -38,11 +38,6 @@ public class TestDataSynthesizer {
 
     public static final String DEFAULT_COLUMN_FAMILY = "family1";
 
-    /**
-     * Though deprecated in 2.0 it still functions very well
-     */
-
-
     private TestRunner getTestRunner(String schema) throws InitializationException {
         MockRecordWriter writerService = new MockRecordWriter("", false);
         final TestRunner runner = TestRunners.newTestRunner(DataSynthesizer.class);
