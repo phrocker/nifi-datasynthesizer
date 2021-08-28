@@ -31,4 +31,10 @@ TextMessage | Generates a text message records containing source phone number, s
 TextGenerator | Generates a block of free-form text. 
 Transactions | Credit Card transaction generator
 
+The package contains the following Controller Services:
+
+Service Name | Description
+------------ | -------------
+DataGenerator | Supports a mapping of schemas so that DataSynthesizer processors can reach back to a single controller service.
+
 All processors have an output record writer configuration and the number of output records.
