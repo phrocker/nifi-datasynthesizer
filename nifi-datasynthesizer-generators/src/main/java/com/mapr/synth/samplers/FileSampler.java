@@ -74,7 +74,9 @@ class FileSampler extends FieldSampler {
     @SuppressWarnings({"UnusedDeclaration", "UnstableApiUsage"})
     public void setResource(String lookup) throws IOException {
         if (lookup.matches(".*\\.json")) {
-            readJsonData(Files.newReader(new File(Resources.getResource(lookup).getFile()), Charsets.UTF_8));
+            // Open as a stream: the resource may live inside a jar, so it is not a File.
+            readJsonData(new java.io.BufferedReader(new java.io.InputStreamReader(
+                    Resources.getResource(lookup).openStream(), Charsets.UTF_8)));
         } else {
             List<String> lines = Resources.readLines(Resources.getResource(lookup), Charsets.UTF_8);
             readDelimitedData(lookup, lines);

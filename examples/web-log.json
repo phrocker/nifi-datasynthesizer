@@ -1,0 +1,8 @@
+[
+  {"name": "user", "class": "pitman_yor", "alpha": 10, "discount": 0.5, "base": {"class": "username"}},
+  {"name": "ip", "class": "ipv4"},
+  {"name": "browser", "class": "browser"},
+  {"name": "os", "class": "os"},
+  {"name": "request_time", "class": "event", "format": "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", "rate": "10/s"},
+  {"name": "path", "class": "string", "dist": {"/": 20, "/login": 5, "/cart": 3, "/checkout": 1, "/search": 8}}
+]

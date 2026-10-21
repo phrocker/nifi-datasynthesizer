@@ -12,11 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-org.apache.nifi.datasynthesizer.processors.DataCorrelator
 org.apache.nifi.datasynthesizer.processors.DataSynthesizer
-org.apache.nifi.datasynthesizer.processors.RemoveRecordPath
-org.apache.nifi.datasynthesizer.processors.synthesizers.telephony.PhoneNumber
-org.apache.nifi.datasynthesizer.processors.synthesizers.telephony.TextMessage
-org.apache.nifi.datasynthesizer.processors.synthesizers.iot.IotData
+org.apache.nifi.datasynthesizer.processors.DataCorrelator
 org.apache.nifi.datasynthesizer.processors.synthesizers.cars.CommuterData
 org.apache.nifi.datasynthesizer.processors.synthesizers.finance.Transactions
+org.apache.nifi.datasynthesizer.processors.synthesizers.iot.IotData
+org.apache.nifi.datasynthesizer.processors.synthesizers.telephony.PhoneNumber
+org.apache.nifi.datasynthesizer.processors.synthesizers.telephony.TextMessage
+org.apache.nifi.datasynthesizer.processors.synthesizers.text.TextGenerator

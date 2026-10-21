@@ -1,0 +1,8 @@
+[
+  {"name": "phone_number", "class": "join", "separator": "-", "value": {
+    "class": "sequence", "length": 3, "array": [
+      {"class": "int", "min": 212, "max": 212},
+      {"class": "int", "min": 200, "max": 999},
+      {"class": "int", "min": 1000, "max": 9999}
+    ]}}
+]

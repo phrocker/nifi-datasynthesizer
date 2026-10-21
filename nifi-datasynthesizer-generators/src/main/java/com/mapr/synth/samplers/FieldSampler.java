@@ -81,6 +81,8 @@ import java.util.Set;
         @JsonSubTypes.Type(value = EmailSampler.class, name = "email"),
         @JsonSubTypes.Type(value = EmailNameSampler.class, name = "email-name"),
         @JsonSubTypes.Type(value = UsernameSampler.class, name = "username"),
+        @JsonSubTypes.Type(value = org.apache.nifi.datasynthesizer.samplers.LlmTextSampler.class, name = "llm"),
+        @JsonSubTypes.Type(value = org.apache.nifi.datasynthesizer.samplers.MarkovTextSampler.class, name = "markov"),
 
 })
 public abstract class FieldSampler implements Sampler<JsonNode> {

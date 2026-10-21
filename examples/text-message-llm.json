@@ -1,0 +1,8 @@
+[
+  {"name": "source_imei", "class": "imei"},
+  {"name": "sent_at", "class": "date", "format": "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"},
+  {"name": "message", "class": "llm",
+   "prompt": "Write one realistic SMS text message between two friends. Vary topic and tone. Under 25 words.",
+   "maxTokens": 60,
+   "batch": 20}
+]

@@ -21,7 +21,7 @@ package com.mapr.synth.samplers;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.TextNode;
-import com.github.javafaker.Faker;
+import net.datafaker.Faker;
 import org.apache.mahout.math.random.Multinomial;
 
 import java.util.ArrayList;
@@ -39,7 +39,7 @@ public class IpV4AddressSampler extends FieldSampler {
     protected Random rand = new Random();
     protected List<String> bagOhWords = new ArrayList<>();
     protected Faker faker =  new Faker();
-    protected Boolean privateAddress = new Boolean(false);
+    protected Boolean privateAddress = Boolean.FALSE;
     public IpV4AddressSampler() {
     }
 

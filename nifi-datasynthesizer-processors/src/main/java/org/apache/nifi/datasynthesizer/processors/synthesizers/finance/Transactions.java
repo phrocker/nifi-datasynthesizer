@@ -16,483 +16,278 @@
 package org.apache.nifi.datasynthesizer.processors.synthesizers.finance;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.github.javafaker.Faker;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mapr.synth.samplers.SchemaSampler;
 import com.mapr.synth.samplers.ZipSampler;
-import org.apache.commons.io.IOUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.WritesAttribute;
+import org.apache.nifi.annotation.behavior.WritesAttributes;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.ValidationContext;
-import org.apache.nifi.components.ValidationResult;
-import org.apache.nifi.datasynthesizer.data.JsonWriter;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizerBase;
+import org.apache.nifi.datasynthesizer.processors.JsonRecords;
+import org.apache.nifi.datasynthesizer.processors.synthesizers.iot.IotData;
 import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.json.JsonSchemaInference;
-import org.apache.nifi.json.JsonTreeRowRecordReader;
+import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
-import org.apache.nifi.schema.inference.RecordSource;
-import org.apache.nifi.schema.inference.SchemaInferenceEngine;
-import org.apache.nifi.schema.inference.TimeValueInference;
-import org.apache.nifi.serialization.*;
+import org.apache.nifi.serialization.MalformedRecordException;
+import org.apache.nifi.serialization.RecordReader;
+import org.apache.nifi.serialization.RecordReaderFactory;
+import org.apache.nifi.serialization.RecordSetWriter;
+import org.apache.nifi.serialization.RecordSetWriterFactory;
+import org.apache.nifi.serialization.WriteResult;
+import org.apache.nifi.serialization.record.DataType;
+import org.apache.nifi.serialization.record.MapRecord;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
-import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jackson.node.ArrayNode;
-import org.codehaus.jackson.node.JsonNodeFactory;
-import org.codehaus.jackson.node.ObjectNode;
 
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.IntStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_ALLOWED)
-@Tags({"data-synthesis", "record"})
+@Tags({"data-synthesis", "synthetic", "record", "finance", "transaction", "credit-card"})
+@CapabilityDescription("Generates credit card transactions against a fixed pool of merchant terminals, each with a real "
+        + "US address. Without input, each record is a 'transactions' array. With input, every incoming record is "
+        + "enriched with a 'transactions' array, so an upstream person generator yields card holders with purchases.")
+@WritesAttributes({
+        @WritesAttribute(attribute = "record.count", description = "Number of records written"),
+        @WritesAttribute(attribute = "mime.type", description = "MIME type reported by the record writer")})
 public class Transactions extends DataSynthesizerBase {
 
-    protected static final PropertyDescriptor TERMINALS_TO_GENERATE = new PropertyDescriptor.Builder()
+    public static final String TRANSACTIONS_FIELD = "transactions";
+
+    public static final PropertyDescriptor TERMINALS_TO_GENERATE = new PropertyDescriptor.Builder()
             .name("terminal-generation-count")
-            .displayName("Terminal Generation Count")
-            .description("Specify the number of terminals to generate to be used, globally")
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
-            .required(false)
+            .displayName("Terminal Count")
+            .description("Size of the merchant terminal pool shared by all transactions.")
+            .defaultValue("1000")
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .required(true)
             .build();
 
-    protected static final PropertyDescriptor RECORD_READER_FACTORY = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor RECORD_READER_FACTORY = new PropertyDescriptor.Builder()
             .name("record-reader")
             .displayName("Record Reader")
-            .description("Specifies the Controller Service to use for parsing incoming data and determining the data's schema")
+            .description("Controller service used to read incoming records when input is connected.")
             .identifiesControllerService(RecordReaderFactory.class)
             .required(false)
             .build();
 
-    protected static final PropertyDescriptor GENERATE_INVALID_TRANSACTIONS = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor GENERATE_INVALID_TRANSACTIONS = new PropertyDescriptor.Builder()
             .name("generate-invalid-transactions")
             .displayName("Generate Invalid Transactions")
-            .description("True will generate invalid transactions")
-            .defaultValue("False")
-            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .description("When true, amounts range up to 50000 so that outlier transactions appear.")
+            .defaultValue("false")
+            .allowableValues("true", "false")
             .required(true)
             .build();
 
-    protected static final PropertyDescriptor MAX_TRANSACTIONS = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor MAX_TRANSACTIONS = new PropertyDescriptor.Builder()
             .name("max-transactions")
             .displayName("Max Transactions")
-            .description("The maximum number of transactions per person")
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
+            .description("Maximum number of transactions per record.")
             .defaultValue("1")
-            .required(false)
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .required(true)
             .build();
 
-    protected static final PropertyDescriptor ALLOW_ZERO_TRANSACTIONS = new PropertyDescriptor.Builder()
-            .name("allow-zero-transactions")
-            .displayName("Allow zero transactions")
-            .description("The maximum number of transactions per person")
-            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
-            .defaultValue("false")
-            .required(false)
-            .build();
-
-
-    protected static final PropertyDescriptor FIXED_TRANSACTIONS = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor FIXED_TRANSACTIONS = new PropertyDescriptor.Builder()
             .name("fixed-transaction-count")
             .displayName("Fixed Transaction Count")
-            .description("If true then max transactions will be determined as a fixed number, not an upper bound")
-            .defaultValue("False")
-            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
-            .required(false)
+            .description("When true every record gets exactly Max Transactions; otherwise a random count up to it.")
+            .defaultValue("false")
+            .allowableValues("true", "false")
+            .required(true)
             .build();
 
-    private final Map<String, org.codehaus.jackson.JsonNode> terminalMap = new HashMap<>();
-
-    Faker faker = new Faker();
-
-    protected ThreadLocal<SchemaSampler> sampler = new ThreadLocal<>();
-
-    protected ThreadLocal<SchemaSampler> transactionGenerator = new ThreadLocal<>();
-
-    protected boolean isFixed = false;
-
-    protected int maxTransactions = 1;
-
-    private final Random rand = new Random();
-
-    protected RecordReaderFactory recordParserFactory;
+    public static final PropertyDescriptor ALLOW_ZERO_TRANSACTIONS = new PropertyDescriptor.Builder()
+            .name("allow-zero-transactions")
+            .displayName("Allow Zero Transactions")
+            .description("When counts are random, whether a record may have no transactions at all.")
+            .defaultValue("false")
+            .allowableValues("true", "false")
+            .required(true)
+            .build();
 
     public static final Relationship REL_ORIGINAL = new Relationship.Builder()
             .name("original")
-            .description("Original data record if an input is provided.")
-            .build();
-    public static final Relationship REL_FAILURE = new Relationship.Builder()
-            .name("failure")
-            .description("Data could not be synthesized")
+            .description("The incoming FlowFile, when input is connected")
             .build();
 
-    public static final Relationship REL_CORRELATION = new Relationship.Builder()
-            .name("correlation")
-            .description("Correlation relationship")
-            .build();
+    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+            MAX_TRANSACTIONS, FIXED_TRANSACTIONS, ALLOW_ZERO_TRANSACTIONS, TERMINALS_TO_GENERATE,
+            GENERATE_INVALID_TRANSACTIONS, RECORD_COUNT, RECORD_WRITER, RECORD_READER_FACTORY);
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_ORIGINAL);
 
-    public Transactions(){
+    private volatile List<ObjectNode> terminals = List.of();
+    private volatile ThreadLocal<SchemaSampler> transactionSamplers = new ThreadLocal<>();
+    private volatile String transactionSchema;
+    private volatile int maxTransactions;
+    private volatile boolean fixed;
+    private volatile boolean allowZero;
 
+    @Override
+    protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
+        return PROPERTIES;
     }
 
     @Override
     public Set<Relationship> getRelationships() {
-        final Set<Relationship> rels = new HashSet<>();
-        rels.add(REL_SUCCESS);
-        rels.add(REL_FAILURE);
-        rels.add(REL_ORIGINAL);
-        return rels;
+        return RELATIONSHIPS;
     }
-
 
     @OnScheduled
-    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
-        sampler = new ThreadLocal<>();
-        int terminals = 1000;
-        if (context.getProperty(TERMINALS_TO_GENERATE).isSet()){
-            terminals = context.getProperty(TERMINALS_TO_GENERATE).asInteger();
-        }
-        String terminalSchema = new Scanner(Transactions.class.getResourceAsStream("/generators/terminal.json"), "UTF-8").useDelimiter("\\A").next();
-
-        ZipSampler zipSampler = new ZipSampler();
-        zipSampler.setUseAddress("true");
-        try {
-            transactionGenerator.set(new SchemaSampler(terminalSchema));
-        } catch (IOException e) {
-            throw new InstantiationException(e.getMessage());
-        }
-        ObjectMapper objectMapper = new ObjectMapper();
-        IntStream.range(0,terminals).forEach( x -> {
-            JsonNode node = transactionGenerator.get().sample();
-            final String terminal_id = node.get("terminal_id").asText();
-            org.codehaus.jackson.JsonNode convertedNode = null;
-            try {
-
-                convertedNode = objectMapper.readTree( node.toString());
-                ObjectNode newNode = new ObjectNode(JsonNodeFactory.instance);
-                newNode.put("terminal_id",terminal_id);
-                JsonNode nn = zipSampler.sample();
-                convertedNode = objectMapper.readTree( nn.get("address").toString());
-                newNode.put("terminal_address",convertedNode);
-                convertedNode = objectMapper.readTree( nn.get("city").toString());
-                newNode.put("terminal_city",convertedNode);
-                convertedNode = objectMapper.readTree( nn.get("state").toString());
-                newNode.put("terminal_state",convertedNode);
-                convertedNode = objectMapper.readTree( nn.get("zip").toString());
-                newNode.put("terminal_zip",convertedNode);
-                terminalMap.put(terminal_id,newNode);
-            } catch (IOException e) {
-            }
-
-        });
-        recordParserFactory = context.getProperty(RECORD_READER_FACTORY)
-                .asControllerService(RecordReaderFactory.class);
-
+    public void onScheduled(final ProcessContext context) throws IOException {
         maxTransactions = context.getProperty(MAX_TRANSACTIONS).asInteger();
+        fixed = context.getProperty(FIXED_TRANSACTIONS).asBoolean();
+        allowZero = context.getProperty(ALLOW_ZERO_TRANSACTIONS).asBoolean();
+        transactionSchema = IotData.readResource(context.getProperty(GENERATE_INVALID_TRANSACTIONS).asBoolean()
+                ? "/generators/transaction.json" : "/generators/valid_transaction.json");
+        transactionSamplers = new ThreadLocal<>();
 
-        isFixed = context.getProperty(FIXED_TRANSACTIONS).asBoolean();
+        final SchemaSampler terminalSampler = parseSchema(IotData.readResource("/generators/terminal.json"));
+        final ZipSampler zipSampler = new ZipSampler();
+        zipSampler.setUseAddress("true");
+        final int count = context.getProperty(TERMINALS_TO_GENERATE).asInteger();
+        final List<ObjectNode> pool = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            final JsonNode location = zipSampler.sample();
+            final ObjectNode terminal = new ObjectNode(JsonNodeFactory.instance);
+            terminal.set("terminal_id", terminalSampler.sample().get("terminal_id"));
+            terminal.set("terminal_address", location.get("address"));
+            terminal.set("terminal_city", location.get("city"));
+            terminal.set("terminal_state", location.get("state"));
+            terminal.set("terminal_zip", location.get("zip"));
+            pool.add(terminal);
+        }
+        terminals = List.copyOf(pool);
+    }
+
+    private SchemaSampler transactionSampler() throws IOException {
+        SchemaSampler sampler = transactionSamplers.get();
+        if (sampler == null) {
+            sampler = parseSchema(transactionSchema);
+            transactionSamplers.set(sampler);
+        }
+        return sampler;
+    }
+
+    int transactionCount() {
+        if (fixed) {
+            return maxTransactions;
+        }
+        final int count = ThreadLocalRandom.current().nextInt(maxTransactions + 1);
+        return count == 0 && !allowZero ? 1 : count;
+    }
+
+    ObjectNode transaction() throws IOException {
+        final ObjectNode transaction = (ObjectNode) transactionSampler().sample();
+        final List<ObjectNode> pool = terminals;
+        transaction.setAll(pool.get(ThreadLocalRandom.current().nextInt(pool.size())));
+        return transaction;
+    }
+
+    ArrayNode transactions(final int count) throws IOException {
+        final ArrayNode array = new ArrayNode(JsonNodeFactory.instance);
+        for (int i = 0; i < count; i++) {
+            array.add(transaction());
+        }
+        return array;
     }
 
     @Override
-    public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties  = new ArrayList<>();
-        properties.add(MAX_TRANSACTIONS);
-        properties.add(FIXED_TRANSACTIONS);
-        properties.add(TERMINALS_TO_GENERATE);
-        properties.add(RECORD_WRITER);
-        properties.add(RECORD_COUNT);
-        properties.add(RECORD_READER_FACTORY);
-        properties.add(GENERATE_INVALID_TRANSACTIONS);
-        properties.add(ALLOW_ZERO_TRANSACTIONS);
-        return properties;
-    }
-
-    @Override
-    protected Collection<ValidationResult> customValidate(ValidationContext validationContext) {
-        Collection<ValidationResult> set = Collections.emptySet();
-        return set;
-    }
-
-    public static org.codehaus.jackson.JsonNode merge(org.codehaus.jackson.JsonNode mainNode, org.codehaus.jackson.JsonNode updateNode) {
-
-        Iterator<String> fieldNames = updateNode.getFieldNames();
-
-        while (fieldNames.hasNext()) {
-            String updatedFieldName = fieldNames.next();
-            org.codehaus.jackson.JsonNode valueToBeUpdated = mainNode.get(updatedFieldName);
-            org.codehaus.jackson.JsonNode updatedValue = updateNode.get(updatedFieldName);
-
-            // If the node is an @ArrayNode
-            if (valueToBeUpdated != null && valueToBeUpdated.isArray() &&
-                    updatedValue.isArray()) {
-                // running a loop for all elements of the updated ArrayNode
-                for (int i = 0; i < updatedValue.size(); i++) {
-                    org.codehaus.jackson.JsonNode updatedChildNode = updatedValue.get(i);
-                    // Create a new Node in the node that should be updated, if there was no corresponding node in it
-                    // Use-case - where the updateNode will have a new element in its Array
-                    if (valueToBeUpdated.size() <= i) {
-                        ((ArrayNode) valueToBeUpdated).add(updatedChildNode);
-                    }
-                    // getting reference for the node to be updated
-                    org.codehaus.jackson.JsonNode childNodeToBeUpdated = valueToBeUpdated.get(i);
-                    merge(childNodeToBeUpdated, updatedChildNode);
-                }
-                // if the Node is an @ObjectNode
-            } else if (valueToBeUpdated != null && valueToBeUpdated.isObject()) {
-                merge(valueToBeUpdated, updatedValue);
-            } else {
-                if (mainNode instanceof ObjectNode) {
-                    //((ObjectNode) mainNode).remove(updatedFieldName);
-                    ((ObjectNode) mainNode).put(updatedFieldName, updatedValue);
-                }
+    public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
+        final FlowFile input = session.get();
+        if (input == null) {
+            if (context.hasIncomingConnection()) {
+                return;
             }
-        }
-        return mainNode;
-    }
-
-    private void createRecord(){
-
-    }
-
-    protected ObjectNode createTerminalAndTransactions(final SchemaSampler mySampler, final List<String> keysAsArray,final int transactionCount) throws IOException {
-
-        ObjectNode node = new ObjectNode(JsonNodeFactory.instance);
-        node.put("transactions", new ArrayNode(JsonNodeFactory.instance));
-        ObjectMapper objectMapper = new ObjectMapper();
-        for(int i=0; i < transactionCount; i++) {
-
-            com.fasterxml.jackson.databind.JsonNode newNode = mySampler.sample();
-            org.codehaus.jackson.JsonNode convertedNode = objectMapper.readTree(newNode.toString());
-            org.codehaus.jackson.JsonNode terminal = terminalMap.get(keysAsArray.get(rand.nextInt(keysAsArray.size())));
-            merge(convertedNode, terminal);
-            ((ArrayNode) node.get("transactions")).add(convertedNode);
-        }
-        return node;
-    }
-
-    protected void createRecords(final ProcessSession processSession, final ProcessContext processContext, final int recordCount, final int maxTransactions){
-        final RecordSetWriterFactory writerFactory = processContext.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
-
-        boolean invalid = processContext.getProperty(GENERATE_INVALID_TRANSACTIONS).asBoolean();
-        final String definedSchema = invalid ? new Scanner(Transactions.class.getResourceAsStream("/generators/transaction.json"), "UTF-8").useDelimiter("\\A").next() :
-                new Scanner(Transactions.class.getResourceAsStream("/generators/valid_transaction.json"), "UTF-8").useDelimiter("\\A").next();
-
-        final SchemaSampler mySampler;
-        try{
-            mySampler = new SchemaSampler(definedSchema);
-        }catch(final IOException e){
-            throw new ProcessException(e);
-        }
-
-        ObjectMapper objectMapper = new ObjectMapper();
-        List<String> keysAsArray = new ArrayList<>(terminalMap.keySet());
-        final RecordSchema schema;
-        {
-
-
-            try {
-                final ObjectNode created = createTerminalAndTransactions(mySampler,keysAsArray,maxTransactions);
-                String data = created.toString();
-                Queue<org.codehaus.jackson.JsonNode> nodes = new ArrayDeque<>();
-
-                org.codehaus.jackson.JsonNode node = objectMapper.readTree(data);
-                nodes.add(node);
-                final SchemaInferenceEngine<org.codehaus.jackson.JsonNode> timestampInference = new JsonSchemaInference(new TimeValueInference("yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"));
-                RecordSource<org.codehaus.jackson.JsonNode> rs = new RecordSource<org.codehaus.jackson.JsonNode>() {
-
-                    @Override
-                    public org.codehaus.jackson.JsonNode next() throws IOException {
-
-                        if (!nodes.isEmpty())
-                        {
-                            return nodes.poll();
-                        }
-                        else{
-                            return null;
-                        }
-                    }
-                };
-
-                schema = timestampInference.inferSchema(rs);
-            } catch (IOException e) {
-                throw new ProcessException(e);
-            }
-        }
-
-
-
-        final FlowFile flowFile = processSession.write(processSession.create(), (inputStream, out) -> {
-            Map<String, String> obj = new HashMap<>();
-            try {
-                final RecordSchema writeSchema = writerFactory.getSchema(obj, schema);
-                try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out)) {
-
-                    IntStream.range(0, recordCount).forEach(x -> {
-
-                        try {
-                            ObjectNode node = createTerminalAndTransactions(mySampler,keysAsArray,maxTransactions);
-
-                            final InputStream targetStream = IOUtils.toInputStream(node.toString(), StandardCharsets.UTF_8.name());
-                            JsonTreeRowRecordReader rreader = new JsonTreeRowRecordReader(targetStream, getLogger(), schema, "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
-                            Record record = rreader.nextRecord();
-
-                            writer.write(record);
-
-                        } catch (IOException e) {
-                            throw new ProcessException(e);
-                        } catch (MalformedRecordException e) {
-                            throw new ProcessException(e);
-                        }
-
-                    });
-
-                }
-            }catch (IOException e) {
-                throw new ProcessException(e);
-            } catch (SchemaNotFoundException e) {
-                throw new ProcessException(e);
-            }
-
-
-        });
-
-        processSession.transfer(flowFile, REL_SUCCESS);
-    }
-
-    @Override
-    public void onTrigger(ProcessContext processContext, ProcessSession processSession) throws ProcessException {
-
-        FlowFile flowFile = processSession.get();
-        if (null == flowFile) {
-            int recordCount = processContext.getProperty(RECORD_COUNT).asInteger();
-            int max =(maxTransactions > 1 ? rand.nextInt(5) : isFixed ? maxTransactions : rand.nextInt(maxTransactions));
-            if (0 == max && processContext.getProperty(ALLOW_ZERO_TRANSACTIONS).asBoolean()){
-                max = 1;
-            }
-            createRecords(processSession,processContext,recordCount,max);
+            generateStandalone(context, session);
             return;
         }
-
-        Queue<org.codehaus.jackson.JsonNode> nodes = new ArrayDeque<>();
-        final SchemaInferenceEngine<org.codehaus.jackson.JsonNode> timestampInference = new JsonSchemaInference(new TimeValueInference("yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"));
-        final RecordSource<org.codehaus.jackson.JsonNode> rs = new RecordSource<org.codehaus.jackson.JsonNode>() {
-
-            @Override
-            public org.codehaus.jackson.JsonNode next() throws IOException {
-
-                if (!nodes.isEmpty())
-                {
-                    return nodes.poll();
-                }
-                else{
-                    return null;
-                }
-            }
-        };
-
-
-        final RecordSetWriterFactory writerFactory = processContext.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
-        boolean invalid = processContext.getProperty(GENERATE_INVALID_TRANSACTIONS).asBoolean();
-        final String definedSchema = invalid ? new Scanner(Transactions.class.getResourceAsStream("/generators/transaction.json"), "UTF-8").useDelimiter("\\A").next() :
-                new Scanner(Transactions.class.getResourceAsStream("/generators/valid_transaction.json"), "UTF-8").useDelimiter("\\A").next();
-
-        final SchemaSampler mySampler;
-        try{
-            mySampler = new SchemaSampler(definedSchema);
-        }catch(final IOException e){
-            throw new ProcessException(e);
+        if (!context.getProperty(RECORD_READER_FACTORY).isSet()) {
+            getLogger().error("A Record Reader is required to enrich incoming records; routing {} to failure", input);
+            session.transfer(session.penalize(input), REL_FAILURE);
+            return;
         }
+        enrich(context, session, input);
+    }
 
-        AtomicReference<Relationship> rel = new AtomicReference<>(REL_SUCCESS);
-
-        final AtomicReference<RecordSchema> writeSchema = new AtomicReference<>(null);
-        final AtomicReference<RecordSetWriter> recordWriter = new AtomicReference<>(null);
-        final FlowFile newFlowFile = processSession.write(processSession.create(), (inputStream, out) -> {
-            Map<String, String> obj = new HashMap<>();
-            try {
-
-                List<String> keysAsArray = new ArrayList<>(terminalMap.keySet());
-                try (final InputStream in = processSession.read(flowFile);
-                     final RecordReader reader = recordParserFactory.createRecordReader(flowFile, in, getLogger())) {
-
-                    Record record = reader.nextRecord();
-
-                    do{
-                        String tree = "{ \"object\": \"value\"}";
-                        try {
-                            final ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                            final DataOutputStream dos = new DataOutputStream(bos);
-
-                            RecordSetWriter rsw = JsonWriter.createWriter(getLogger(), reader.getSchema(), dos, obj);
-                            rsw.write(record);
-                            rsw.close();
-                            tree = bos.toString();
-                        }
-                        catch(Exception e){
-                            rel.set(REL_FAILURE);
-                        }
-
-                        ObjectMapper objectMapper = new ObjectMapper();
-                        ObjectNode node = (ObjectNode) objectMapper.readTree(tree);
-                        node.put("transactions", new ArrayNode(JsonNodeFactory.instance));
-                        int max =(maxTransactions > 1 ? rand.nextInt(5) : isFixed ? maxTransactions : rand.nextInt(maxTransactions));
-                        if (0 == max && processContext.getProperty(ALLOW_ZERO_TRANSACTIONS).asBoolean()){
-                            max = 1;
-                        }
-                        for(int i=0; i < max; i++){
-
-                            com.fasterxml.jackson.databind.JsonNode newNode = mySampler.sample();
-                            org.codehaus.jackson.JsonNode convertedNode = objectMapper.readTree( newNode.toString());
-                            org.codehaus.jackson.JsonNode terminal = terminalMap.get(keysAsArray.get(rand.nextInt(keysAsArray.size())));
-                            merge(convertedNode,terminal);
-                            ((ArrayNode)node.get("transactions")).add(convertedNode);
-                        }
-                        nodes.add(node);
-
-
-                            RecordSchema schema = timestampInference.inferSchema(rs);
-
-                            InputStream targetStream = IOUtils.toInputStream(node.toString(), StandardCharsets.UTF_8.name());
-                            JsonTreeRowRecordReader rreader = new JsonTreeRowRecordReader(targetStream, getLogger(), schema, "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
-                            Record newRecord = rreader.nextRecord();
-
-                            if (null == writeSchema.get()){
-                                writeSchema.set(writerFactory.getSchema(obj, schema));
-                                recordWriter.set(writerFactory.createWriter(getLogger(), writeSchema.get(), out));
-                            }
-                            recordWriter.get().write(newRecord);
-
-                    }while ((record = reader.nextRecord()) != null);
-
-                } catch (MalformedRecordException e) {
+    private void generateStandalone(final ProcessContext context, final ProcessSession session) {
+        final int recordCount = context.getProperty(RECORD_COUNT).asInteger();
+        try {
+            final FlowFile flowFile = writeRecords(session, context, null, () -> {
+                try {
+                    final ObjectNode record = new ObjectNode(JsonNodeFactory.instance);
+                    record.set(TRANSACTIONS_FIELD, transactions(transactionCount()));
+                    return record;
+                } catch (final IOException e) {
                     throw new ProcessException(e);
                 }
+            }, recordCount);
+            session.transfer(flowFile, REL_SUCCESS);
+        } catch (final IOException | RuntimeException e) {
+            getLogger().error("Failed to synthesize transactions", e);
+            context.yield();
+            throw new ProcessException("Failed to synthesize transactions: " + e.getMessage(), e);
+        }
+    }
 
-            }catch (IOException e) {
-                throw new ProcessException(e);
-            } catch (SchemaNotFoundException e) {
-                throw new ProcessException(e);
-            }
-            finally{
-                if (null != recordWriter.get()){
-                    recordWriter.get().close();
+    private void enrich(final ProcessContext context, final ProcessSession session, final FlowFile input) {
+        final RecordReaderFactory readerFactory = context.getProperty(RECORD_READER_FACTORY).asControllerService(RecordReaderFactory.class);
+        final RecordSetWriterFactory writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
+        FlowFile output = session.create(input);
+        final Map<String, String> attributes = new HashMap<>();
+        try {
+            // Infer the array type from a populated sample so an empty first array does not degrade the schema.
+            final ObjectNode probe = new ObjectNode(JsonNodeFactory.instance);
+            probe.set(TRANSACTIONS_FIELD, transactions(1));
+            final DataType arrayType = JsonRecords.inferSchema(probe).getDataType(TRANSACTIONS_FIELD).orElseThrow();
+
+            output = session.write(output, out -> {
+                try (InputStream in = session.read(input);
+                     RecordReader reader = readerFactory.createRecordReader(input, in, getLogger())) {
+                    final RecordSchema schema = JsonRecords.withField(reader.getSchema(), TRANSACTIONS_FIELD, arrayType);
+                    final RecordSchema writeSchema = writerFactory.getSchema(input.getAttributes(), schema);
+                    try (RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out, input.getAttributes())) {
+                        writer.beginRecordSet();
+                        Record record;
+                        while ((record = reader.nextRecord()) != null) {
+                            final Map<String, Object> values = new HashMap<>(record.toMap());
+                            values.put(TRANSACTIONS_FIELD, JsonRecords.toValue(transactions(transactionCount()), arrayType));
+                            writer.write(new MapRecord(schema, values, false, false));
+                        }
+                        final WriteResult result = writer.finishRecordSet();
+                        attributes.putAll(result.getAttributes());
+                        attributes.put("record.count", String.valueOf(result.getRecordCount()));
+                        attributes.put(CoreAttributes.MIME_TYPE.key(), writer.getMimeType());
+                    }
+                } catch (final SchemaNotFoundException | MalformedRecordException e) {
+                    throw new ProcessException("Unable to read incoming records", e);
                 }
-            }
-        });
-        processSession.transfer(flowFile,REL_ORIGINAL);
-        processSession.transfer(newFlowFile, rel.get());
-
-
-
+            });
+            output = session.putAllAttributes(output, attributes);
+            session.transfer(output, REL_SUCCESS);
+            session.transfer(input, REL_ORIGINAL);
+        } catch (final IOException | RuntimeException e) {
+            getLogger().error("Failed to add transactions to {}", input, e);
+            session.remove(output);
+            session.transfer(session.penalize(input), REL_FAILURE);
+        }
     }
 }

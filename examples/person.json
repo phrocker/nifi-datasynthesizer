@@ -1,0 +1,8 @@
+[
+  {"name": "id", "class": "uuid"},
+  {"name": "name", "class": "name", "type": "first_last"},
+  {"name": "ssn", "class": "ssn"},
+  {"name": "email", "class": "email"},
+  {"name": "street", "class": "street-name"},
+  {"name": "location", "class": "zip", "fields": "zip, city, state, latitude, longitude"}
+]
