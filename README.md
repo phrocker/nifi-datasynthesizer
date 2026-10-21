@@ -64,8 +64,8 @@ Restart NiFi. All three NARs are required; the processors NAR and the services N
 | `TextGenerator` | Records containing a block of free text. |
 
 Every processor takes a **Record Writer** (any NiFi record writer: JSON, Avro, CSV, Parquet...) and a
-**Record Count** per FlowFile, writes `record.count` and `mime.type` attributes, and has a `chaos` relationship
-for fault manifests (see Chaos engineering below).
+**Record Count** per FlowFile, writes `record.count` and `mime.type` attributes, and has `chaos` and `invalid`
+relationships for fault manifests and negative-path records (see Chaos engineering below).
 
 `TextMessage`, `TextGenerator`, `DataSynthesizer` and `DataCorrelator` also take an optional
 **Text Generation Service**. When set, text fields are written by the model; when unset, `TextMessage` and
@@ -130,7 +130,12 @@ dates a century off).
 
 **Record-level faults** are properties on every processor: **Chaos Duplicate Rate**, **Chaos Drop Rate** (the
 record is withheld but still listed in the manifest, for gap detection) and **Chaos Drift Rate** (a random field
-is removed, as a producer with schema drift would).
+is removed, or an unrelated `chaos_unexpected` field is added, as a producer with schema drift would).
+
+**Chaos Routing** decides where tampered records go. `Mixed` (default) leaves them in `success` among the clean
+ones, to test whether a pipeline notices bad data in the stream. `Separate` writes them to their own FlowFile on
+the `invalid` relationship, a negative path that is not a failure, to feed a known-bad stream into the error
+handling branch of a flow.
 
 Set **Chaos Enabled** to true and every record gains a `chaos_id` field, null for untouched records and a UUID
 for tampered ones. One manifest FlowFile per batch is routed to the new `chaos` relationship with a record per

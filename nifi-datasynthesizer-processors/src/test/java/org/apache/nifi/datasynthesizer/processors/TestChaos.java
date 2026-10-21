@@ -102,6 +102,39 @@ class TestChaos {
     }
 
     @Test
+    void separateRoutingSendsTamperedRecordsToInvalid() throws Exception {
+        final TestRunner runner = runner(40, "[{\"name\":\"id\",\"class\":\"uuid\"},"
+                + "{\"name\":\"email\",\"class\":\"chaos\",\"rate\":0.5,\"seed\":3,\"faults\":[\"null\"],\"value\":{\"class\":\"email\"}}]");
+        runner.setProperty(ChaosProfile.CHAOS_ENABLED, "true");
+        runner.setProperty(ChaosProfile.CHAOS_ROUTING, "separate");
+        runner.run();
+        runner.assertTransferCount(DataSynthesizer.REL_SUCCESS, 1);
+        runner.assertTransferCount(DataSynthesizer.REL_INVALID, 1);
+        runner.assertTransferCount(DataSynthesizer.REL_CHAOS, 1);
+        final MockFlowFile good = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0);
+        final MockFlowFile bad = runner.getFlowFilesForRelationship(DataSynthesizer.REL_INVALID).get(0);
+        assertEquals(0, ids(good.getContent()).size(), "clean output must not contain tampered records");
+        assertFalse(good.getContent().contains("\"email\":null"), good.getContent());
+        assertEquals(Integer.parseInt(bad.getAttribute("record.count")), ids(bad.getContent()).size(), bad.getContent());
+        assertEquals(ids(bad.getContent()), ids(runner.getFlowFilesForRelationship(DataSynthesizer.REL_CHAOS).get(0).getContent()));
+        assertEquals(40, Integer.parseInt(good.getAttribute("record.count")) + Integer.parseInt(bad.getAttribute("record.count")));
+    }
+
+    @Test
+    void driftAddsUnrelatedFieldThatSurvivesTheWriter() throws Exception {
+        final TestRunner runner = runner(60, "[{\"name\":\"id\",\"class\":\"uuid\"},{\"name\":\"n\",\"class\":\"int\",\"min\":1,\"max\":9}]");
+        runner.setProperty(ChaosProfile.CHAOS_ENABLED, "true");
+        runner.setProperty(ChaosProfile.CHAOS_DRIFT_RATE, "0.5");
+        runner.setProperty(ChaosProfile.CHAOS_SEED, "11");
+        runner.run();
+        final String records = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0).getContent();
+        final String manifest = runner.getFlowFilesForRelationship(DataSynthesizer.REL_CHAOS).get(0).getContent();
+        assertTrue(records.contains("\"chaos_unexpected\":\"unexpected-"), records);
+        assertTrue(manifest.contains("\"field\":\"chaos_unexpected\""), manifest);
+        assertTrue(manifest.contains("\"field\":\"n\"") || manifest.contains("\"field\":\"id\""), "removal drift expected too: " + manifest);
+    }
+
+    @Test
     void duplicateDropAndDriftAreReproducibleWithSeed() throws Exception {
         final String schema = "[{\"name\":\"id\",\"class\":\"uuid\",\"seed\":5},{\"name\":\"n\",\"class\":\"int\",\"min\":1,\"max\":9}]";
         String firstRecords = null;

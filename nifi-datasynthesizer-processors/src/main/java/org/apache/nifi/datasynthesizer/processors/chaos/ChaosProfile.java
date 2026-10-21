@@ -45,6 +45,14 @@ import java.util.function.Supplier;
 public final class ChaosProfile {
 
     public static final String DEFAULT_ID_FIELD = "chaos_id";
+    /** Field added by DRIFT when it injects unrelated data. Present in the write schema whenever drift is enabled. */
+    public static final String UNEXPECTED_FIELD = "chaos_unexpected";
+
+    public static final org.apache.nifi.components.AllowableValue ROUTE_MIXED = new org.apache.nifi.components.AllowableValue(
+            "mixed", "Mixed", "Tampered records stay in the normal output alongside clean ones, identified by chaos_id");
+    public static final org.apache.nifi.components.AllowableValue ROUTE_SEPARATE = new org.apache.nifi.components.AllowableValue(
+            "separate", "Separate", "Tampered records are written to their own FlowFile on the 'invalid' relationship; "
+                    + "clean records go to 'success'");
 
     /** Accepts a probability between 0 and 1 inclusive. */
     static final org.apache.nifi.components.Validator RATE_VALIDATOR = (subject, input, context) -> {
@@ -93,10 +101,20 @@ public final class ChaosProfile {
     public static final PropertyDescriptor CHAOS_DRIFT_RATE = new PropertyDescriptor.Builder()
             .name("chaos-drift-rate")
             .displayName("Chaos Drift Rate")
-            .description("Probability (0 to 1) that a random field is removed from a record, simulating a producer "
-                    + "whose schema drifted.")
+            .description("Probability (0 to 1) that a record's shape drifts: a random field is removed, or an unrelated "
+                    + "'chaos_unexpected' field is added, simulating a producer whose schema changed.")
             .defaultValue("0")
             .addValidator(RATE_VALIDATOR)
+            .required(true)
+            .build();
+
+    public static final PropertyDescriptor CHAOS_ROUTING = new PropertyDescriptor.Builder()
+            .name("chaos-routing")
+            .displayName("Chaos Routing")
+            .description("Where tampered records go. 'Mixed' tests whether a pipeline detects bad data in the stream; "
+                    + "'Separate' feeds a known-bad stream to the negative path of a flow.")
+            .allowableValues(ROUTE_MIXED, ROUTE_SEPARATE)
+            .defaultValue(ROUTE_MIXED.getValue())
             .required(true)
             .build();
 
@@ -110,22 +128,25 @@ public final class ChaosProfile {
             .build();
 
     public static final List<PropertyDescriptor> PROPERTIES = List.of(
-            CHAOS_ENABLED, CHAOS_DUPLICATE_RATE, CHAOS_DROP_RATE, CHAOS_DRIFT_RATE, CHAOS_SEED);
+            CHAOS_ENABLED, CHAOS_DUPLICATE_RATE, CHAOS_DROP_RATE, CHAOS_DRIFT_RATE, CHAOS_ROUTING, CHAOS_SEED);
 
     /** A profile that does nothing, for processors with chaos disabled. */
-    public static final ChaosProfile OFF = new ChaosProfile(false, 0, 0, 0, null);
+    public static final ChaosProfile OFF = new ChaosProfile(false, 0, 0, 0, false, null);
 
     private final boolean enabled;
     private final double duplicateRate;
     private final double dropRate;
     private final double driftRate;
+    private final boolean separate;
     private final Random random;
 
-    private ChaosProfile(final boolean enabled, final double duplicateRate, final double dropRate, final double driftRate, final Long seed) {
+    private ChaosProfile(final boolean enabled, final double duplicateRate, final double dropRate, final double driftRate,
+                         final boolean separate, final Long seed) {
         this.enabled = enabled;
         this.duplicateRate = duplicateRate;
         this.dropRate = dropRate;
         this.driftRate = driftRate;
+        this.separate = separate;
         this.random = seed == null ? null : new Random(seed);
     }
 
@@ -137,11 +158,28 @@ public final class ChaosProfile {
                 context.getProperty(CHAOS_DUPLICATE_RATE).asDouble(),
                 context.getProperty(CHAOS_DROP_RATE).asDouble(),
                 context.getProperty(CHAOS_DRIFT_RATE).asDouble(),
+                ROUTE_SEPARATE.getValue().equals(context.getProperty(CHAOS_ROUTING).getValue()),
                 context.getProperty(CHAOS_SEED).isSet() ? context.getProperty(CHAOS_SEED).asLong() : null);
     }
 
     public boolean isEnabled() {
         return enabled;
+    }
+
+    /** Whether tampered records are routed to 'invalid' instead of staying in the normal output. */
+    public boolean isSeparate() {
+        return enabled && separate;
+    }
+
+    /** Whether drift may add {@link #UNEXPECTED_FIELD}, in which case the write schema must declare it. */
+    public boolean mayAddUnexpectedField() {
+        return enabled && driftRate > 0;
+    }
+
+    /** True when the record was tampered with (has a non-null chaos id). */
+    public static boolean isTampered(final JsonNode record) {
+        final JsonNode id = record.get(DEFAULT_ID_FIELD);
+        return id != null && !id.isNull();
     }
 
     /** One manifest row. */
@@ -204,9 +242,14 @@ public final class ChaosProfile {
             if (rng.nextDouble() < driftRate) {
                 final List<String> names = new ArrayList<>();
                 record.properties().forEach(entry -> names.add(entry.getKey()));
-                if (!names.isEmpty()) {
+                chaosId = chaosId == null ? newId() : chaosId;
+                if (names.isEmpty() || rng.nextBoolean()) {
+                    // Add an unrelated field
+                    final String injected = "unexpected-" + Integer.toHexString(rng.nextInt());
+                    record.put(UNEXPECTED_FIELD, injected);
+                    manifest.add(new ManifestEntry(chaosId, Fault.DRIFT, UNEXPECTED_FIELD, null, injected));
+                } else {
                     final String removed = names.get(rng.nextInt(names.size()));
-                    chaosId = chaosId == null ? newId() : chaosId;
                     manifest.add(new ManifestEntry(chaosId, Fault.DRIFT, removed, describe(record.get(removed)), null));
                     record.remove(removed);
                 }

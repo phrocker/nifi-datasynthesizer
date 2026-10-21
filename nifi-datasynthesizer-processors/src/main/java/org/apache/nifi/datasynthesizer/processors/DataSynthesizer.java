@@ -54,7 +54,7 @@ public class DataSynthesizer extends DataSynthesizerBase {
 
     private static final List<PropertyDescriptor> PROPERTIES = withChaos(List.of(
             SCHEMA, SCHEMA_LOOKUP_SERVICE, RECORD_COUNT, RECORD_WRITER, TEXT_GENERATION_SERVICE));
-    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_ORIGINAL, REL_CHAOS);
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_ORIGINAL, REL_CHAOS, REL_INVALID);
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {

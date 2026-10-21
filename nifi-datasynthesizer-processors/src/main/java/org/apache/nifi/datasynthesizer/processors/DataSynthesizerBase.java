@@ -115,7 +115,14 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
             .autoTerminateDefault(true)
             .build();
 
-    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_CHAOS);
+    public static final Relationship REL_INVALID = new Relationship.Builder()
+            .name("invalid")
+            .description("Tampered records when Chaos Routing is 'Separate': the negative path of a flow under test. "
+                    + "Not a failure. Auto-terminate when chaos is not in use.")
+            .autoTerminateDefault(true)
+            .build();
+
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_CHAOS, REL_INVALID);
 
     /** Appends the chaos profile properties to a processor's own list. */
     protected static List<PropertyDescriptor> withChaos(final List<PropertyDescriptor> own) {
@@ -222,7 +229,23 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
     protected FlowFile writeRecords(final ProcessSession session, final ProcessContext context, final FlowFile parent,
                                     final Supplier<JsonNode> supplier, final int count) throws IOException {
         final ChaosProfile.Batch batch = chaos.batch(supplier);
-        final FlowFile output = writeNodes(session, context, parent, () -> batch.next().iterator(), count);
+        final FlowFile output;
+        if (chaos.isSeparate()) {
+            // Draw the whole batch so tampered and clean records can be written to different FlowFiles.
+            final List<JsonNode> clean = new ArrayList<>();
+            final List<JsonNode> tampered = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                for (final JsonNode node : batch.next()) {
+                    (ChaosProfile.isTampered(node) ? tampered : clean).add(node);
+                }
+            }
+            output = writeList(session, context, parent, clean, tampered.isEmpty() ? null : tampered.get(0));
+            if (!tampered.isEmpty()) {
+                session.transfer(writeList(session, context, parent, tampered, clean.isEmpty() ? null : clean.get(0)), REL_INVALID);
+            }
+        } else {
+            output = writeNodes(session, context, parent, () -> batch.next().iterator(), count);
+        }
         if (chaos.isEnabled() && !batch.manifest().isEmpty()) {
             final java.util.Iterator<ChaosProfile.ManifestEntry> entries = batch.manifest().iterator();
             final FlowFile manifest = writeNodes(session, context, parent,
@@ -230,6 +253,56 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
             session.transfer(manifest, REL_CHAOS);
         }
         return output;
+    }
+
+    /** Writes a fully drawn list; {@code exemplar} lends its shape to the schema when the list is empty. */
+    private FlowFile writeList(final ProcessSession session, final ProcessContext context, final FlowFile parent,
+                               final List<JsonNode> nodes, final JsonNode exemplar) throws IOException {
+        if (nodes.isEmpty() && exemplar != null) {
+            final RecordSchema schema = extendForChaos(JsonRecords.inferSchema(exemplar));
+            return writeEmpty(session, context, parent, schema);
+        }
+        final java.util.Iterator<JsonNode> iterator = nodes.iterator();
+        return writeNodes(session, context, parent, () -> List.of(iterator.next()).iterator(), nodes.size());
+    }
+
+    private FlowFile writeEmpty(final ProcessSession session, final ProcessContext context, final FlowFile parent,
+                                final RecordSchema schema) throws IOException {
+        final RecordSetWriterFactory writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
+        final Map<String, String> variables = parent == null ? Map.of() : parent.getAttributes();
+        final Map<String, String> attributes = new HashMap<>();
+        FlowFile flowFile = parent == null ? session.create() : session.create(parent);
+        try {
+            flowFile = session.write(flowFile, out -> {
+                try (RecordSetWriter writer = writerFactory.createWriter(getLogger(), writerFactory.getSchema(variables, schema), out, variables)) {
+                    writer.beginRecordSet();
+                    final WriteResult result = writer.finishRecordSet();
+                    attributes.putAll(result.getAttributes());
+                    attributes.put("record.count", "0");
+                    attributes.put(CoreAttributes.MIME_TYPE.key(), writer.getMimeType());
+                } catch (final SchemaNotFoundException e) {
+                    throw new ProcessException("Record writer could not resolve a schema", e);
+                }
+            });
+        } catch (final RuntimeException e) {
+            session.remove(flowFile);
+            throw e;
+        }
+        return session.putAllAttributes(flowFile, attributes);
+    }
+
+    /** Declares the chaos fields in the write schema so tagged and drifted records survive the record writer. */
+    private RecordSchema extendForChaos(final RecordSchema inferred) {
+        RecordSchema schema = inferred;
+        if (chaos.isEnabled() && schema.getField(ChaosProfile.DEFAULT_ID_FIELD).isEmpty()) {
+            schema = JsonRecords.withField(schema, ChaosProfile.DEFAULT_ID_FIELD,
+                    org.apache.nifi.serialization.record.RecordFieldType.STRING.getDataType());
+        }
+        if (chaos.mayAddUnexpectedField() && schema.getField(ChaosProfile.UNEXPECTED_FIELD).isEmpty()) {
+            schema = JsonRecords.withField(schema, ChaosProfile.UNEXPECTED_FIELD,
+                    org.apache.nifi.serialization.record.RecordFieldType.STRING.getDataType());
+        }
+        return schema;
     }
 
     /**
@@ -256,7 +329,7 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
             }
         }
         final int remaining = count - drawn;
-        final RecordSchema schema = JsonRecords.inferSchema(head.toArray(new JsonNode[0]));
+        final RecordSchema schema = extendForChaos(JsonRecords.inferSchema(head.toArray(new JsonNode[0])));
         final Map<String, String> variables = parent == null ? Map.of() : parent.getAttributes();
         final Map<String, String> attributes = new HashMap<>();
 
