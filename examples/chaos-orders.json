@@ -1,0 +1,15 @@
+[
+  {"name": "order_id", "class": "uuid"},
+  {"name": "customer_email", "class": "chaos", "rate": 0.03, "seed": 42,
+   "faults": ["null", "unicode", "injection", "whitespace"],
+   "value": {"class": "email"}},
+  {"name": "amount", "class": "chaos", "rate": 0.02, "seed": 43,
+   "faults": ["outlier", "type", "null"],
+   "value": {"class": "double", "min": 1, "max": 500}},
+  {"name": "placed_at", "class": "chaos", "rate": 0.01, "seed": 44,
+   "faults": ["outlier", "empty"],
+   "value": {"class": "date", "format": "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"}},
+  {"name": "notes", "class": "chaos", "rate": 0.01, "seed": 45,
+   "faults": ["oversize", "truncate"],
+   "value": {"class": "markov", "corpus": "alice_oz", "length": 15}}
+]

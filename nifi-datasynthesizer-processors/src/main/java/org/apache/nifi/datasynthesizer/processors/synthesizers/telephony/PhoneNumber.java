@@ -39,7 +39,7 @@ public class PhoneNumber extends DataSynthesizerBase {
             .required(false)
             .build();
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(AREA_CODE, RECORD_COUNT, RECORD_WRITER);
+    private static final List<PropertyDescriptor> PROPERTIES = withChaos(List.of(AREA_CODE, RECORD_COUNT, RECORD_WRITER));
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {

@@ -74,8 +74,8 @@ public class TextGenerator extends DataSynthesizerBase {
             .required(true)
             .build();
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(
-            WORD_LENGTH, CORPUS, RECORD_COUNT, RECORD_WRITER, TEXT_GENERATION_SERVICE, LLM_PROMPT, LLM_BATCH);
+    private static final List<PropertyDescriptor> PROPERTIES = withChaos(List.of(
+            WORD_LENGTH, CORPUS, RECORD_COUNT, RECORD_WRITER, TEXT_GENERATION_SERVICE, LLM_PROMPT, LLM_BATCH));
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {

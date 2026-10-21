@@ -52,9 +52,9 @@ public class DataSynthesizer extends DataSynthesizerBase {
             .description("Incoming FlowFiles whose content was used as the schema")
             .build();
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(
-            SCHEMA, SCHEMA_LOOKUP_SERVICE, RECORD_COUNT, RECORD_WRITER, TEXT_GENERATION_SERVICE);
-    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_ORIGINAL);
+    private static final List<PropertyDescriptor> PROPERTIES = withChaos(List.of(
+            SCHEMA, SCHEMA_LOOKUP_SERVICE, RECORD_COUNT, RECORD_WRITER, TEXT_GENERATION_SERVICE));
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_ORIGINAL, REL_CHAOS);
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {

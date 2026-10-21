@@ -110,10 +110,10 @@ public class DataCorrelator extends DataSynthesizerBase {
             .required(true)
             .build();
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+    private static final List<PropertyDescriptor> PROPERTIES = withChaos(List.of(
             CORRELATOR_SCHEMA, SCHEMA_KEY, SELECT_OBJECT, CORRELATIONS_PER_RECORD, RECORD_READER, RECORD_WRITER,
-            SCHEMA_LOOKUP_SERVICE, TEXT_GENERATION_SERVICE);
-    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_ORIGINAL, REL_CORRELATION);
+            SCHEMA_LOOKUP_SERVICE, TEXT_GENERATION_SERVICE));
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_ORIGINAL, REL_CORRELATION, REL_CHAOS);
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {

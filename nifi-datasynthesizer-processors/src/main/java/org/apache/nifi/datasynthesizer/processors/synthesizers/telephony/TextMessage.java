@@ -77,9 +77,9 @@ public class TextMessage extends DataSynthesizerBase {
             .required(true)
             .build();
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+    private static final List<PropertyDescriptor> PROPERTIES = withChaos(List.of(
             SOURCE_AREA_CODE, DESTINATION_AREA_CODE, WORD_LENGTH, RECORD_COUNT, RECORD_WRITER,
-            TEXT_GENERATION_SERVICE, LLM_PROMPT, LLM_BATCH);
+            TEXT_GENERATION_SERVICE, LLM_PROMPT, LLM_BATCH));
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {

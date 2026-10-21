@@ -24,6 +24,7 @@ import org.apache.nifi.datasynthesizer.SamplerBase;
 import org.apache.nifi.datasynthesizer.llm.TextCompletion;
 import org.apache.nifi.datasynthesizer.llm.TextCompletionContext;
 import org.apache.nifi.datasynthesizer.llm.TextCompletionException;
+import org.apache.nifi.datasynthesizer.processors.chaos.ChaosProfile;
 import org.apache.nifi.datasynthesizer.services.SchemaLookupService;
 import org.apache.nifi.datasynthesizer.services.TextGenerationRequest;
 import org.apache.nifi.datasynthesizer.services.TextGenerationService;
@@ -107,7 +108,23 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
             .description("Input FlowFiles for which records could not be generated")
             .build();
 
-    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
+    public static final Relationship REL_CHAOS = new Relationship.Builder()
+            .name("chaos")
+            .description("Manifest of injected faults (one record per fault) when Chaos Enabled is true. "
+                    + "Auto-terminate when chaos is not in use.")
+            .autoTerminateDefault(true)
+            .build();
+
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_CHAOS);
+
+    /** Appends the chaos profile properties to a processor's own list. */
+    protected static List<PropertyDescriptor> withChaos(final List<PropertyDescriptor> own) {
+        final List<PropertyDescriptor> all = new ArrayList<>(own);
+        all.addAll(ChaosProfile.PROPERTIES);
+        return List.copyOf(all);
+    }
+
+    protected volatile ChaosProfile chaos = ChaosProfile.OFF;
 
     /** Schema text fixed by configuration or by a subclass; null means it comes from the FlowFile or lookup service. */
     protected volatile String definedSchema;
@@ -124,6 +141,7 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
     @OnScheduled
     public void configureBase(final ProcessContext context) {
         samplers = new ThreadLocal<>();
+        chaos = ChaosProfile.from(context);
         schemaLookupService = context.getProperty(SCHEMA_LOOKUP_SERVICE) != null && context.getProperty(SCHEMA_LOOKUP_SERVICE).isSet()
                 ? context.getProperty(SCHEMA_LOOKUP_SERVICE).asControllerService(SchemaLookupService.class)
                 : null;
@@ -203,11 +221,41 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
      */
     protected FlowFile writeRecords(final ProcessSession session, final ProcessContext context, final FlowFile parent,
                                     final Supplier<JsonNode> supplier, final int count) throws IOException {
+        final ChaosProfile.Batch batch = chaos.batch(supplier);
+        final FlowFile output = writeNodes(session, context, parent, () -> batch.next().iterator(), count);
+        if (chaos.isEnabled() && !batch.manifest().isEmpty()) {
+            final java.util.Iterator<ChaosProfile.ManifestEntry> entries = batch.manifest().iterator();
+            final FlowFile manifest = writeNodes(session, context, parent,
+                    () -> List.<JsonNode>of(entries.next().toJson()).iterator(), batch.manifest().size());
+            session.transfer(manifest, REL_CHAOS);
+        }
+        return output;
+    }
+
+    /**
+     * Writes records into a new FlowFile. {@code draw} is invoked {@code count} times and each call may yield zero
+     * or more records (chaos may drop or duplicate). The schema is inferred from the first records drawn.
+     */
+    private FlowFile writeNodes(final ProcessSession session, final ProcessContext context, final FlowFile parent,
+                                final Supplier<java.util.Iterator<JsonNode>> draw, final int count) throws IOException {
         final RecordSetWriterFactory writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
         final List<JsonNode> head = new ArrayList<>();
-        for (int i = 0; i < Math.min(count, INFERENCE_SAMPLES); i++) {
-            head.add(supplier.get());
+        int drawn = 0;
+        while (drawn < count && head.size() < INFERENCE_SAMPLES) {
+            draw.get().forEachRemaining(head::add);
+            drawn++;
         }
+        if (head.isEmpty()) {
+            // Everything was dropped: keep drawing until something survives or the budget is spent.
+            while (drawn < count && head.isEmpty()) {
+                draw.get().forEachRemaining(head::add);
+                drawn++;
+            }
+            if (head.isEmpty()) {
+                throw new IOException("Chaos profile dropped every record in the batch; lower the drop rate");
+            }
+        }
+        final int remaining = count - drawn;
         final RecordSchema schema = JsonRecords.inferSchema(head.toArray(new JsonNode[0]));
         final Map<String, String> variables = parent == null ? Map.of() : parent.getAttributes();
         final Map<String, String> attributes = new HashMap<>();
@@ -222,8 +270,11 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
                         for (final JsonNode node : head) {
                             writer.write(JsonRecords.toRecord(node, schema));
                         }
-                        for (int i = head.size(); i < count; i++) {
-                            writer.write(JsonRecords.toRecord(supplier.get(), schema));
+                        for (int i = 0; i < remaining; i++) {
+                            final java.util.Iterator<JsonNode> nodes = draw.get();
+                            while (nodes.hasNext()) {
+                                writer.write(JsonRecords.toRecord(nodes.next(), schema));
+                            }
                         }
                         final WriteResult result = writer.finishRecordSet();
                         attributes.putAll(result.getAttributes());

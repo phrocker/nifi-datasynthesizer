@@ -11,7 +11,8 @@ a `DataGenerator` controller service, or send them as FlowFile content to a `Dat
 | `web-log.json` | Long-tail distributed users, IP addresses, browsers and request timestamps |
 | `text-message-llm.json` | SMS records whose body is written by the configured Text Generation Service |
 | `support-ticket-llm.json` | Support tickets with an LLM-written description and a Markov fallback field |
+| `chaos-orders.json` | Orders where a few percent of emails, amounts, dates and notes are deliberately corrupted; pair with Chaos Enabled on the processor to get the fault manifest |
 
 The full list of samplers (`class` values) is in the upstream log-synth README:
 https://github.com/tdunning/log-synth/blob/master/README.md. This bundle adds `ipv4`, `imei`, `double`, `vehicle`,
-`toll`, `text`, `email`, `email-name`, `username`, `markov` and `llm`.
+`toll`, `text`, `email`, `email-name`, `username`, `markov`, `llm` and `chaos`.
