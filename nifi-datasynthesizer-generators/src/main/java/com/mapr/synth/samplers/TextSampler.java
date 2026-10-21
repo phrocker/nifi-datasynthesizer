@@ -21,7 +21,7 @@ package com.mapr.synth.samplers;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.TextNode;
-import com.github.javafaker.Faker;
+import net.datafaker.Faker;
 import org.apache.mahout.math.random.Multinomial;
 
 import java.util.ArrayList;

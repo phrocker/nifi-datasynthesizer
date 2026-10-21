@@ -16,76 +16,84 @@
 package org.apache.nifi.datasynthesizer.processors.synthesizers.text;
 
 import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
+import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizerBase;
-import org.apache.nifi.datasynthesizer.processors.data.MarkovChain;
+import org.apache.nifi.datasynthesizer.processors.synthesizers.telephony.TextMessage;
 import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
-@Tags({"data-synthesis", "record", "text"})
+@Tags({"data-synthesis", "synthetic", "record", "text", "markov", "llm"})
+@CapabilityDescription("Generates records containing a block of free text. Text comes from an offline Markov chain "
+        + "trained on a bundled corpus, or from the configured Text Generation Service when one is set.")
 public class TextGenerator extends DataSynthesizerBase {
 
-    private MarkovChain textGen;
+    static final AllowableValue ALICE_OZ = new AllowableValue("alice_oz", "Alice in Wonderland and The Wizard of Oz", "Narrative prose");
+    static final AllowableValue US_CONST = new AllowableValue("us_const", "US Constitution", "Formal legal prose");
 
-
-    protected static final PropertyDescriptor WORD_LENGTH = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor WORD_LENGTH = new PropertyDescriptor.Builder()
             .name("word-length")
-            .displayName("word Length")
-            .description("Length of expected text")
+            .displayName("Word Length")
+            .description("Approximate length of the generated text, in words.")
             .defaultValue("128")
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
-            .required(false)
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .required(true)
             .build();
-    private Integer textLength = 128;
 
-    public TextGenerator(){
+    public static final PropertyDescriptor CORPUS = new PropertyDescriptor.Builder()
+            .name("corpus")
+            .displayName("Corpus")
+            .description("Training corpus for the offline Markov chain.")
+            .allowableValues(ALICE_OZ, US_CONST)
+            .defaultValue(ALICE_OZ.getValue())
+            .required(true)
+            .build();
 
-    }
+    public static final PropertyDescriptor LLM_PROMPT = new PropertyDescriptor.Builder()
+            .name("llm-prompt")
+            .displayName("LLM Prompt")
+            .description("Prompt used when a Text Generation Service is configured.")
+            .defaultValue("Write a short passage of plausible but entirely fictional prose, such as a product review, "
+                    + "a support ticket, a news blurb or a diary entry. Vary the genre.")
+            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .required(true)
+            .build();
+
+    public static final PropertyDescriptor LLM_BATCH = new PropertyDescriptor.Builder()
+            .name("llm-batch")
+            .displayName("LLM Batch Size")
+            .description("Number of texts requested from the Text Generation Service per API call.")
+            .defaultValue("5")
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .required(true)
+            .build();
+
+    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+            WORD_LENGTH, CORPUS, RECORD_COUNT, RECORD_WRITER, TEXT_GENERATION_SERVICE, LLM_PROMPT, LLM_BATCH);
 
     @Override
-    public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties  = new ArrayList<>();
-        properties.add(RECORD_COUNT);
-        properties.add(WORD_LENGTH);
-        properties.add(RECORD_WRITER);
-        return properties;
+    protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
+        return PROPERTIES;
     }
-
 
     @OnScheduled
-    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
-        sampler = new ThreadLocal<>();
-        try {
-            textGen = new MarkovChain(TextGenerator.class.getResourceAsStream("/trainingset/alice_oz.txt"));
-        } catch (IOException e) {
-            throw new InstantiationException(e.getMessage());
+    public void onScheduled(final ProcessContext context) {
+        resetSamplers();
+        final int words = context.getProperty(WORD_LENGTH).asInteger();
+        if (context.getProperty(TEXT_GENERATION_SERVICE).isSet()) {
+            final String prompt = context.getProperty(LLM_PROMPT).getValue() + " Aim for about " + words + " words.";
+            definedSchema = "[{\"name\": \"message\", \"class\": \"llm\", \"prompt\": " + TextMessage.quote(prompt)
+                    + ", \"maxTokens\": " + Math.max(64, words * 3)
+                    + ", \"batch\": " + context.getProperty(LLM_BATCH).asInteger() + "}]";
+        } else {
+            definedSchema = "[{\"name\": \"message\", \"class\": \"markov\", \"corpus\": \""
+                    + context.getProperty(CORPUS).getValue() + "\", \"length\": " + words + "}]";
         }
-        textLength = context.getProperty(WORD_LENGTH).asInteger();
-        if (textLength < 0){
-            textLength=1;
-        }
-    }
-
-    @Override
-    public void onTrigger(ProcessContext processContext, ProcessSession processSession) throws ProcessException {
-        int recordCount = processContext.getProperty(RECORD_COUNT).asInteger();
-        try {
-            definedSchema = "[" +
-                    "{\"name\":\"message\", \"class\":\"text\", \"text\":\"" + textGen.produce(textLength)  + "\"}" +
-                    "]";
-        } catch (IOException e) {
-            throw new ProcessException(e.getMessage());
-        }
-        sampler.set(null);
-        createRecords(processSession,processContext,recordCount);
     }
 }

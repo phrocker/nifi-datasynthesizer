@@ -16,80 +16,51 @@
 package org.apache.nifi.datasynthesizer.processors.synthesizers.telephony;
 
 import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.ValidationContext;
-import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizerBase;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.util.StandardValidators;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
-@Tags({"data-synthesis", "record", "phone"})
+@Tags({"data-synthesis", "synthetic", "record", "phone"})
+@CapabilityDescription("Generates North American phone number records, optionally pinned to one area code.")
 public class PhoneNumber extends DataSynthesizerBase {
-    protected static final PropertyDescriptor AREA_CODE = new PropertyDescriptor.Builder()
+
+    public static final PropertyDescriptor AREA_CODE = new PropertyDescriptor.Builder()
             .name("area-code")
             .displayName("Area Code")
-            .description("Specifies an area code")
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
+            .description("Three digit area code. Random when unset.")
+            .addValidator(StandardValidators.createLongValidator(100, 999, true))
             .required(false)
             .build();
 
+    private static final List<PropertyDescriptor> PROPERTIES = List.of(AREA_CODE, RECORD_COUNT, RECORD_WRITER);
 
-
-    public PhoneNumber(){
-
+    @Override
+    protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
+        return PROPERTIES;
     }
-
 
     @OnScheduled
-    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
-        sampler = new ThreadLocal<>();
-        int area_min = 100;
-        int area_max = 999;
-        if (context.getProperty(AREA_CODE).isSet()){
-            final Integer value = context.getProperty(AREA_CODE).asInteger();
-            area_min = value;
-            area_max = value;
-        }
-        definedSchema = "[{\"name\": \"phone_number\", \"class\": \"join\", \"separator\": \"-\", \"value\": {\n" +
-                "          \"class\":\"sequence\",\n" +
-                "          \"length\":3,\n" +
-                "          \"array\":[\n" +
-                "              { \"class\": \"int\", \"min\": " + area_min + ", \"max\": " + area_max + "},\n" +
-                "              { \"class\": \"int\", \"min\": 100, \"max\": 999},\n" +
-                "              { \"class\": \"int\", \"min\": 1000, \"max\": 9999}\n" +
-                "          ]\n" +
-                "    }}]";
-
-
+    public void onScheduled(final ProcessContext context) {
+        resetSamplers();
+        final Integer areaCode = context.getProperty(AREA_CODE).isSet() ? context.getProperty(AREA_CODE).asInteger() : null;
+        definedSchema = "[" + phoneField("phone_number", areaCode) + "]";
     }
 
-    @Override
-    public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties  = new ArrayList<>();
-        properties.add(AREA_CODE);
-        properties.add(RECORD_COUNT);
-        properties.add(RECORD_WRITER);
-        return properties;
-    }
-
-    @Override
-    protected Collection<ValidationResult> customValidate(ValidationContext validationContext) {
-        Collection<ValidationResult> set = Collections.emptySet();
-        if (validationContext.getProperty(AREA_CODE).isSet()){
-            final String strVal = validationContext.getProperty(AREA_CODE).getValue();
-            final Integer value = validationContext.getProperty(AREA_CODE).asInteger();
-            if (value < 0 || value > 999){
-                set.add(new ValidationResult.Builder().valid(false).explanation("Area code must be a 3 digit number").input(strVal).subject("Area code").build());
-            }
-        }
-        return set;
+    /** log-synth fragment for a NANP-style phone number field, optionally fixed to one area code. */
+    static String phoneField(final String name, final Integer areaCode) {
+        final int min = areaCode == null ? 200 : areaCode;
+        final int max = areaCode == null ? 999 : areaCode;
+        return "{\"name\": \"" + name + "\", \"class\": \"join\", \"separator\": \"-\", \"value\": {"
+                + "\"class\": \"sequence\", \"length\": 3, \"array\": ["
+                + "{\"class\": \"int\", \"min\": " + min + ", \"max\": " + max + "},"
+                + "{\"class\": \"int\", \"min\": 200, \"max\": 999},"
+                + "{\"class\": \"int\", \"min\": 1000, \"max\": 9999}]}}";
     }
 }

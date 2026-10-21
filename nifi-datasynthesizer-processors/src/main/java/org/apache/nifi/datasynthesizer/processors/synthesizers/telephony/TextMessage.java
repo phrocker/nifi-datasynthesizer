@@ -15,147 +15,103 @@
  */
 package org.apache.nifi.datasynthesizer.processors.synthesizers.telephony;
 
-import com.github.javafaker.Faker;
-import org.apache.commons.text.StringEscapeUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.ValidationContext;
-import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.datasynthesizer.processors.DataSynthesizerBase;
-import org.apache.nifi.datasynthesizer.processors.data.MarkovChain;
-import org.apache.nifi.datasynthesizer.processors.synthesizers.text.TextGenerator;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.util.StandardValidators;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
-@Tags({"data-synthesis", "record", "text", "phone"})
+@Tags({"data-synthesis", "synthetic", "record", "sms", "text", "phone", "llm"})
+@CapabilityDescription("Generates SMS text message records: source IMEI, source and destination phone numbers, a "
+        + "timestamp and a message body. The body comes from an offline Markov chain, or from the configured Text "
+        + "Generation Service when one is set, in which case messages are requested in batches of 'LLM Batch Size'.")
 public class TextMessage extends DataSynthesizerBase {
-    protected static final PropertyDescriptor SOURCE_AREA_CODE = new PropertyDescriptor.Builder()
+
+    public static final PropertyDescriptor SOURCE_AREA_CODE = new PropertyDescriptor.Builder()
             .name("origin-area-code")
             .displayName("Source Area Code")
-            .description("Specifies an area code for the source phone number")
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
+            .description("Area code of the sending number. Random when unset.")
+            .addValidator(StandardValidators.createLongValidator(100, 999, true))
             .required(false)
             .build();
 
-    protected static final PropertyDescriptor DESTINATION_AREA_CODE = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor DESTINATION_AREA_CODE = new PropertyDescriptor.Builder()
             .name("destination-area-code")
             .displayName("Destination Area Code")
-            .description("Specifies an area code for the destination phone number")
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
+            .description("Area code of the receiving number. Random when unset.")
+            .addValidator(StandardValidators.createLongValidator(100, 999, true))
             .required(false)
             .build();
 
-    protected static final PropertyDescriptor WORD_LENGTH = new PropertyDescriptor.Builder()
+    public static final PropertyDescriptor WORD_LENGTH = new PropertyDescriptor.Builder()
             .name("word-length")
-            .displayName("word Length")
-            .description("Length of expected text")
-            .defaultValue("160")
-            .addValidator(StandardValidators.INTEGER_VALIDATOR)
-            .required(false)
+            .displayName("Message Length")
+            .description("Approximate message length in words.")
+            .defaultValue("25")
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .required(true)
             .build();
 
-    Faker faker = new Faker();
-    private MarkovChain textGen;
+    public static final PropertyDescriptor LLM_PROMPT = new PropertyDescriptor.Builder()
+            .name("llm-prompt")
+            .displayName("LLM Prompt")
+            .description("Prompt used when a Text Generation Service is configured.")
+            .defaultValue("Write one realistic SMS text message between two people. Vary the topic, tone and length; "
+                    + "most are casual and short.")
+            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .required(true)
+            .build();
 
+    public static final PropertyDescriptor LLM_BATCH = new PropertyDescriptor.Builder()
+            .name("llm-batch")
+            .displayName("LLM Batch Size")
+            .description("Number of messages requested from the Text Generation Service per API call.")
+            .defaultValue("20")
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .required(true)
+            .build();
 
-    public TextMessage(){
+    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+            SOURCE_AREA_CODE, DESTINATION_AREA_CODE, WORD_LENGTH, RECORD_COUNT, RECORD_WRITER,
+            TEXT_GENERATION_SERVICE, LLM_PROMPT, LLM_BATCH);
 
+    @Override
+    protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
+        return PROPERTIES;
     }
-
 
     @OnScheduled
-    public void onScheduled(final ProcessContext context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
-        sampler = new ThreadLocal<>();
-        int source_area_min = 100;
-        int source_area_max = 999;
-        int destination_area_min = 100;
-        int destination_area_max = 999;
-        if (context.getProperty(SOURCE_AREA_CODE).isSet()){
-            final Integer value = context.getProperty(SOURCE_AREA_CODE).asInteger();
-            source_area_min = value;
-            source_area_max = value;
-        }
-        if (context.getProperty(DESTINATION_AREA_CODE).isSet()){
-            final Integer value = context.getProperty(DESTINATION_AREA_CODE).asInteger();
-            destination_area_min = value;
-            destination_area_max = value;
-        }
-        sampler = new ThreadLocal<>();
-        try {
-            textGen = new MarkovChain(TextGenerator.class.getResourceAsStream("/trainingset/us_const.txt"));
-        } catch (IOException e) {
-            throw new InstantiationException(e.getMessage());
-        }
-        Integer textLength = context.getProperty(WORD_LENGTH).asInteger();
-        try {
-            definedSchema = "[" +
-                "{\"name\":\"source_imei\", \"class\":\"imei\"}," +
-                "{\"name\": \"source_phone_number\", \"class\": \"join\", \"separator\": \"-\", \"value\": {\n" +
-                    "          \"class\":\"sequence\",\n" +
-                    "          \"length\":3,\n" +
-                    "          \"array\":[\n" +
-                    "              { \"class\": \"int\", \"min\": " + source_area_min + ", \"max\": " + source_area_max + "},\n" +
-                    "              { \"class\": \"int\", \"min\": 100, \"max\": 999},\n" +
-                    "              { \"class\": \"int\", \"min\": 1000, \"max\": 9999}\n" +
-                    "          ]\n" +
-                    "    }}," +
-                    "{\"name\": \"destination_phone_number\", \"class\": \"join\", \"separator\": \"-\", \"value\": {\n" +
-                    "          \"class\":\"sequence\",\n" +
-                    "          \"length\":3,\n" +
-                    "          \"array\":[\n" +
-                    "              { \"class\": \"int\", \"min\": " + destination_area_min + ", \"max\": " + destination_area_max + "},\n" +
-                    "              { \"class\": \"int\", \"min\": 100, \"max\": 999},\n" +
-                    "              { \"class\": \"int\", \"min\": 1000, \"max\": 9999}\n" +
-                    "          ]\n" +
-                    "    }}," +
-                    "{\"name\":\"sent_date_time\", \"class\":\"date\", \"format\":\"yyyy-MM-dd HH:mm:ssZ\"}," +
-                    "{\"name\":\"message\", \"class\":\"text\", \"text\":\"" + StringEscapeUtils.escapeJava(textGen.produceText(textLength))  + "\"}" +
-                    "]";
-        } catch (IOException e) {
-            throw new InstantiationException(e.getMessage());
-        }
+    public void onScheduled(final ProcessContext context) {
+        resetSamplers();
+        final Integer source = context.getProperty(SOURCE_AREA_CODE).isSet() ? context.getProperty(SOURCE_AREA_CODE).asInteger() : null;
+        final Integer destination = context.getProperty(DESTINATION_AREA_CODE).isSet() ? context.getProperty(DESTINATION_AREA_CODE).asInteger() : null;
+        final int words = context.getProperty(WORD_LENGTH).asInteger();
 
-
+        final String message;
+        if (context.getProperty(TEXT_GENERATION_SERVICE).isSet()) {
+            final String prompt = context.getProperty(LLM_PROMPT).getValue() + " Keep it under " + words + " words.";
+            message = "{\"name\": \"message\", \"class\": \"llm\", \"prompt\": " + quote(prompt)
+                    + ", \"maxTokens\": " + Math.max(32, words * 3)
+                    + ", \"batch\": " + context.getProperty(LLM_BATCH).asInteger() + "}";
+        } else {
+            message = "{\"name\": \"message\", \"class\": \"markov\", \"corpus\": \"us_const\", \"length\": " + words + "}";
+        }
+        definedSchema = "["
+                + "{\"name\": \"source_imei\", \"class\": \"imei\"},"
+                + PhoneNumber.phoneField("source_phone_number", source) + ","
+                + PhoneNumber.phoneField("destination_phone_number", destination) + ","
+                + "{\"name\": \"timestamp\", \"class\": \"date\", \"format\": \"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'\"},"
+                + message
+                + "]";
     }
 
-    @Override
-    public List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties  = new ArrayList<>();
-        properties.add(SOURCE_AREA_CODE);
-        properties.add(DESTINATION_AREA_CODE);
-        properties.add(RECORD_COUNT);
-        properties.add(RECORD_WRITER);
-        properties.add(WORD_LENGTH);
-        return properties;
-    }
-
-    @Override
-    protected Collection<ValidationResult> customValidate(ValidationContext validationContext) {
-        Collection<ValidationResult> set = Collections.emptySet();
-        if (validationContext.getProperty(SOURCE_AREA_CODE).isSet()){
-            final String strVal = validationContext.getProperty(SOURCE_AREA_CODE).getValue();
-            final Integer value = validationContext.getProperty(SOURCE_AREA_CODE).asInteger();
-            if (value < 0 || value > 999){
-                set.add(new ValidationResult.Builder().valid(false).explanation("Area code must be a 3 digit number").input(strVal).subject("Area code").build());
-            }
-        }
-
-        if (validationContext.getProperty(DESTINATION_AREA_CODE).isSet()){
-            final String strVal = validationContext.getProperty(DESTINATION_AREA_CODE).getValue();
-            final Integer value = validationContext.getProperty(DESTINATION_AREA_CODE).asInteger();
-            if (value < 0 || value > 999){
-                set.add(new ValidationResult.Builder().valid(false).explanation("Area code must be a 3 digit number").input(strVal).subject("Area code").build());
-            }
-        }
-        return set;
+    public static String quote(final String text) {
+        return "\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 }

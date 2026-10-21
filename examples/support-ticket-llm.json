@@ -1,0 +1,12 @@
+[
+  {"name": "ticket_id", "class": "uuid"},
+  {"name": "customer", "class": "email"},
+  {"name": "opened", "class": "date", "format": "yyyy-MM-dd HH:mm:ss"},
+  {"name": "priority", "class": "string", "dist": {"low": 5, "normal": 10, "high": 3, "urgent": 1}},
+  {"name": "description", "class": "llm",
+   "system": "You write fictional customer support tickets for a consumer electronics company. Output only the ticket text.",
+   "prompt": "Write the body of one support ticket. Mention a product, a symptom and what the customer already tried.",
+   "maxTokens": 160,
+   "batch": 10},
+  {"name": "internal_note", "class": "markov", "corpus": "alice_oz", "length": 20}
+]
