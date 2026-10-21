@@ -24,8 +24,11 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.datasynthesizer.SamplerBase;
 import org.apache.nifi.datasynthesizer.llm.TextCompletionContext;
+import org.apache.nifi.datasynthesizer.processors.chaos.ChaosProfile;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.nifi.serialization.MalformedRecordException;
+import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.flowfile.attributes.CoreAttributes;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
@@ -34,9 +37,6 @@ import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.RecordReader;
 import org.apache.nifi.serialization.RecordReaderFactory;
-import org.apache.nifi.serialization.RecordSetWriter;
-import org.apache.nifi.serialization.RecordSetWriterFactory;
-import org.apache.nifi.serialization.WriteResult;
 import org.apache.nifi.serialization.record.DataType;
 import org.apache.nifi.serialization.record.MapRecord;
 import org.apache.nifi.serialization.record.Record;
@@ -132,73 +132,90 @@ public class DataCorrelator extends DataSynthesizerBase {
             return;
         }
         final RecordReaderFactory readerFactory = context.getProperty(RECORD_READER).asControllerService(RecordReaderFactory.class);
-        final RecordSetWriterFactory writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
         final String key = context.getProperty(SCHEMA_KEY).getValue();
         final boolean selectObject = context.getProperty(SELECT_OBJECT).asBoolean();
         final int perRecord = context.getProperty(CORRELATIONS_PER_RECORD).asInteger();
 
-        FlowFile enriched = session.create(input);
-        final List<JsonNode> pieces = new ArrayList<>();
-        final Map<String, String> enrichedAttributes = new HashMap<>();
-
+        final List<FlowFile> created = new ArrayList<>();
         try (TextCompletionContext.Scope ignored = bindTextGeneration()) {
             final SamplerBase sampler = configuredSampler();
-            enriched = session.write(enriched, out -> {
-                try (InputStream in = session.read(input);
-                     RecordReader reader = readerFactory.createRecordReader(input, in, getLogger())) {
-                    RecordSetWriter writer = null;
-                    RecordSchema mergedSchema = null;
-                    DataType pieceType = null;
-                    Record record;
-                    while ((record = reader.nextRecord()) != null) {
-                        for (int i = 0; i < perRecord; i++) {
-                            JsonNode piece = next(sampler);
+            final ChaosProfile.Batch batch = chaos.batch(() -> next(sampler));
+
+            // Buffer the enriched records so tampered ones can be routed separately and the schema is known up front.
+            final List<Record> clean = new ArrayList<>();
+            final List<Record> tampered = new ArrayList<>();
+            final List<JsonNode> pieces = new ArrayList<>();
+            RecordSchema mergedSchema = null;
+            DataType pieceType = null;
+
+            try (InputStream in = session.read(input);
+                 RecordReader reader = readerFactory.createRecordReader(input, in, getLogger())) {
+                Record record;
+                while ((record = reader.nextRecord()) != null) {
+                    for (int i = 0; i < perRecord; i++) {
+                        for (final JsonNode sampled : batch.next()) {
+                            final boolean isTampered = ChaosProfile.isTampered(sampled);
+                            JsonNode piece = sampled;
                             if (selectObject) {
-                                piece = piece.get(key);
+                                piece = sampled.get(key);
                                 if (piece == null) {
                                     throw new ProcessException("Sampled object has no field named '" + key + "'");
                                 }
+                                if (chaos.isEnabled() && piece instanceof ObjectNode object) {
+                                    object.set(ChaosProfile.DEFAULT_ID_FIELD, sampled.get(ChaosProfile.DEFAULT_ID_FIELD));
+                                }
                             }
-                            if (writer == null) {
+                            if (mergedSchema == null) {
                                 pieceType = JsonRecords.inferDataType(key, piece);
                                 mergedSchema = JsonRecords.withField(reader.getSchema(), key, pieceType);
-                                final RecordSchema writeSchema = writerFactory.getSchema(input.getAttributes(), mergedSchema);
-                                writer = writerFactory.createWriter(getLogger(), writeSchema, out, input.getAttributes());
-                                writer.beginRecordSet();
+                                if (chaos.isEnabled()) {
+                                    mergedSchema = JsonRecords.withField(mergedSchema, ChaosProfile.DEFAULT_ID_FIELD, RecordFieldType.STRING.getDataType());
+                                }
                             }
                             final Map<String, Object> values = new HashMap<>(record.toMap());
                             values.put(key, JsonRecords.toValue(piece, pieceType));
-                            writer.write(new MapRecord(mergedSchema, values, false, false));
+                            if (chaos.isEnabled()) {
+                                values.put(ChaosProfile.DEFAULT_ID_FIELD, isTampered ? sampled.get(ChaosProfile.DEFAULT_ID_FIELD).asText() : null);
+                            }
+                            (isTampered && chaos.isSeparate() ? tampered : clean).add(new MapRecord(mergedSchema, values, false, false));
                             pieces.add(piece);
                         }
                     }
-                    if (writer != null) {
-                        final WriteResult result = writer.finishRecordSet();
-                        writer.close();
-                        enrichedAttributes.putAll(result.getAttributes());
-                        enrichedAttributes.put("record.count", String.valueOf(result.getRecordCount()));
-                        enrichedAttributes.put(CoreAttributes.MIME_TYPE.key(), writer.getMimeType());
-                    }
-                } catch (final SchemaNotFoundException | org.apache.nifi.serialization.MalformedRecordException e) {
-                    throw new ProcessException("Unable to read incoming records", e);
                 }
-            });
-            enriched = session.putAllAttributes(enriched, enrichedAttributes);
+            } catch (final SchemaNotFoundException | MalformedRecordException e) {
+                throw new ProcessException("Unable to read incoming records", e);
+            }
 
-            if (pieces.isEmpty()) {
-                session.remove(enriched);
+            if (mergedSchema == null) {
                 session.transfer(input, REL_ORIGINAL);
                 return;
             }
-            final java.util.Iterator<JsonNode> pieceIterator = pieces.iterator();
-            final FlowFile correlation = writeRecords(session, context, input, pieceIterator::next, pieces.size());
-
-            session.transfer(enriched, REL_SUCCESS);
-            session.transfer(correlation, REL_CORRELATION);
+            // Write everything first; transfer only once nothing can fail.
+            final Map<FlowFile, Relationship> transfers = new java.util.LinkedHashMap<>();
+            final FlowFile enriched = writeRecordList(session, context, input, mergedSchema, clean);
+            created.add(enriched);
+            transfers.put(enriched, REL_SUCCESS);
+            if (!tampered.isEmpty()) {
+                final FlowFile invalid = writeRecordList(session, context, input, mergedSchema, tampered);
+                created.add(invalid);
+                transfers.put(invalid, REL_INVALID);
+            }
+            if (!pieces.isEmpty()) {
+                final java.util.Iterator<JsonNode> pieceIterator = pieces.iterator();
+                final FlowFile correlation = writeWithoutChaos(session, context, input, pieceIterator::next, pieces.size());
+                created.add(correlation);
+                transfers.put(correlation, REL_CORRELATION);
+            }
+            if (chaos.isEnabled() && !batch.manifest().isEmpty()) {
+                final FlowFile manifest = writeManifest(session, input, batch.manifest());
+                created.add(manifest);
+                transfers.put(manifest, REL_CHAOS);
+            }
+            transfers.forEach(session::transfer);
             session.transfer(input, REL_ORIGINAL);
         } catch (final IOException | RuntimeException e) {
             getLogger().error("Failed to correlate records for {}", input, e);
-            session.remove(enriched);
+            created.forEach(session::remove);
             session.transfer(session.penalize(input), REL_FAILURE);
         }
     }

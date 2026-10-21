@@ -102,6 +102,14 @@ public class ChaosSampler extends FieldSampler {
         }
     }
 
+    /** Forwards to the wrapped sampler so sequences restart as they would without chaos; the chaos source is untouched. */
+    @Override
+    public void restart() {
+        if (value != null) {
+            value.restart();
+        }
+    }
+
     @Override
     public JsonNode sample() {
         if (value == null) {

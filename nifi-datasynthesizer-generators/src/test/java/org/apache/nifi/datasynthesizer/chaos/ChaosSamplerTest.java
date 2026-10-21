@@ -79,6 +79,26 @@ class ChaosSamplerTest {
     }
 
     @Test
+    void restartIsForwardedToWrappedSampler() throws Exception {
+        final String wrapped = "[{\"name\":\"seq\",\"class\":\"sequence\",\"length\":2,"
+                + "\"base\":{\"class\":\"chaos\",\"rate\":0,\"value\":{\"class\":\"id\"}}}]";
+        final String plain = "[{\"name\":\"seq\",\"class\":\"sequence\",\"length\":2,\"base\":{\"class\":\"id\"}}]";
+        // Sequence lengths are random, so compare the restart behaviour: every sequence must begin at id 0.
+        for (final String schema : List.of(plain, wrapped)) {
+            final SchemaSampler sampler = new SchemaSampler(schema);
+            int nonEmpty = 0;
+            for (int i = 0; i < 30 && nonEmpty < 5; i++) {
+                final JsonNode seq = sampler.sample().get("seq");
+                if (seq.isArray() && !seq.isEmpty()) {
+                    nonEmpty++;
+                    assertEquals(0, seq.get(0).asInt(), "sequence should restart at 0: " + seq);
+                }
+            }
+            assertTrue(nonEmpty >= 5, "too few non-empty sequences to judge restarts");
+        }
+    }
+
+    @Test
     void recordLevelFaultsRejectedInSchema() {
         assertThrows(Exception.class, () -> new SchemaSampler(schema("\"faults\":[\"duplicate\"]")));
     }

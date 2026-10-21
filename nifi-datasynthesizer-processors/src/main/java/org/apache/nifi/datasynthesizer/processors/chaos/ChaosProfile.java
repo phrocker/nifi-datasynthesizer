@@ -102,7 +102,9 @@ public final class ChaosProfile {
             .name("chaos-drift-rate")
             .displayName("Chaos Drift Rate")
             .description("Probability (0 to 1) that a record's shape drifts: a random field is removed, or an unrelated "
-                    + "'chaos_unexpected' field is added, simulating a producer whose schema changed.")
+                    + "'chaos_unexpected' field is added, simulating a producer whose schema changed. Record writers "
+                    + "emit every schema field, so a removed field appears as null unless the writer suppresses "
+                    + "missing values (JSON writer: Suppress Null Values = Suppress Missing Values).")
             .defaultValue("0")
             .addValidator(RATE_VALIDATOR)
             .required(true)
@@ -203,6 +205,7 @@ public final class ChaosProfile {
     public final class Batch {
         private final Supplier<JsonNode> source;
         private final List<ManifestEntry> manifest = new ArrayList<>();
+        private JsonNode exemplar;
 
         private Batch(final Supplier<JsonNode> source) {
             this.source = source;
@@ -210,6 +213,11 @@ public final class ChaosProfile {
 
         public List<ManifestEntry> manifest() {
             return manifest;
+        }
+
+        /** The first record sampled in this batch, before record-level chaos; lends a schema when nothing survives. */
+        public JsonNode exemplar() {
+            return exemplar;
         }
 
         public synchronized List<JsonNode> next() {
@@ -227,6 +235,9 @@ public final class ChaosProfile {
             final List<FaultRecord> fieldFaults = ChaosLedger.drain();
             if (!(sampled instanceof ObjectNode record)) {
                 return List.of(sampled);
+            }
+            if (exemplar == null) {
+                exemplar = record.deepCopy();
             }
             final Random rng = random != null ? random : ThreadLocalRandom.current();
             String chaosId = fieldFaults.isEmpty() ? null : newId();

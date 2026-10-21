@@ -132,6 +132,12 @@ dates a century off).
 record is withheld but still listed in the manifest, for gap detection) and **Chaos Drift Rate** (a random field
 is removed, or an unrelated `chaos_unexpected` field is added, as a producer with schema drift would).
 
+Record writers emit every field in the schema, so a field removed by drift arrives as `null` unless the writer
+suppresses missing values (JSON writer: **Suppress Null Values** = *Suppress Missing Values*). With chaos enabled,
+inferred scalar fields are widened to a choice with string so a `type` fault that appears after the schema was
+inferred still serializes, including through Avro. The manifest is always newline-delimited JSON, independent of
+the configured writer.
+
 **Chaos Routing** decides where tampered records go. `Mixed` (default) leaves them in `success` among the clean
 ones, to test whether a pipeline notices bad data in the stream. `Separate` writes them to their own FlowFile on
 the `invalid` relationship, a negative path that is not a failure, to feed a known-bad stream into the error

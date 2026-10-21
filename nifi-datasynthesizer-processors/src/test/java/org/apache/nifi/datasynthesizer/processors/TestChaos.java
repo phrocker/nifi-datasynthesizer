@@ -16,7 +16,11 @@
 package org.apache.nifi.datasynthesizer.processors;
 
 import org.apache.nifi.datasynthesizer.processors.chaos.ChaosProfile;
+import org.apache.nifi.avro.AvroRecordSetWriter;
+import org.apache.nifi.datasynthesizer.chaos.ChaosLedger;
 import org.apache.nifi.json.JsonRecordSetWriter;
+import org.apache.nifi.serialization.record.MockRecordParser;
+import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.junit.jupiter.api.Test;
@@ -132,6 +136,145 @@ class TestChaos {
         assertTrue(records.contains("\"chaos_unexpected\":\"unexpected-"), records);
         assertTrue(manifest.contains("\"field\":\"chaos_unexpected\""), manifest);
         assertTrue(manifest.contains("\"field\":\"n\"") || manifest.contains("\"field\":\"id\""), "removal drift expected too: " + manifest);
+    }
+
+    @Test
+    void droppingEveryRecordStillEmitsOutputAndManifest() throws Exception {
+        final TestRunner runner = runner(5, "[{\"name\":\"id\",\"class\":\"uuid\"}]");
+        runner.setProperty(ChaosProfile.CHAOS_ENABLED, "true");
+        runner.setProperty(ChaosProfile.CHAOS_DROP_RATE, "1");
+        runner.run();
+        runner.assertTransferCount(DataSynthesizer.REL_SUCCESS, 1);
+        runner.assertTransferCount(DataSynthesizer.REL_CHAOS, 1);
+        runner.assertTransferCount(DataSynthesizer.REL_FAILURE, 0);
+        runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0).assertAttributeEquals("record.count", "0");
+        final MockFlowFile manifest = runner.getFlowFilesForRelationship(DataSynthesizer.REL_CHAOS).get(0);
+        manifest.assertAttributeEquals("record.count", "5");
+        assertEquals(5, manifest.getContent().split("\"fault\":\"drop\"", -1).length - 1);
+    }
+
+    @Test
+    void manifestDoesNotDependOnTheConfiguredRecordWriter() throws Exception {
+        // MockRecordWriter prints 'header' and comma separated values; the manifest must still be JSON lines.
+        final TestRunner runner = Runners.withWriter(DataSynthesizer.class, 3);
+        runner.setProperty(DataSynthesizer.SCHEMA, "[{\"name\":\"v\",\"class\":\"chaos\",\"rate\":1,\"faults\":[\"null\"],\"value\":{\"class\":\"uuid\"}}]");
+        runner.setProperty(ChaosProfile.CHAOS_ENABLED, "true");
+        runner.run();
+        final MockFlowFile manifest = runner.getFlowFilesForRelationship(DataSynthesizer.REL_CHAOS).get(0);
+        manifest.assertAttributeEquals("mime.type", "application/x-ndjson");
+        manifest.assertAttributeEquals("chaos.manifest", "true");
+        final String[] lines = manifest.getContent().strip().split("\n");
+        assertEquals(3, lines.length, manifest.getContent());
+        for (final String line : lines) {
+            assertTrue(line.startsWith("{\"chaos_id\":\"") && line.endsWith("}"), line);
+        }
+    }
+
+    @Test
+    void typeFaultAfterInferenceWindowStillSerializesWithAvro() throws Exception {
+        // Find a seed where the first 10 draws are clean and a later one swaps the type.
+        String schema = null;
+        for (long seed = 1; seed < 500 && schema == null; seed++) {
+            final String candidate = "[{\"name\":\"id\",\"class\":\"uuid\"},{\"name\":\"amount\",\"class\":\"chaos\",\"rate\":0.3,"
+                    + "\"seed\":" + seed + ",\"faults\":[\"type\"],\"value\":{\"class\":\"int\",\"min\":1,\"max\":9}}]";
+            final com.mapr.synth.samplers.SchemaSampler probe = new com.mapr.synth.samplers.SchemaSampler(candidate);
+            boolean cleanHead = true;
+            for (int i = 0; i < 10; i++) {
+                ChaosLedger.begin();
+                probe.sample();
+                cleanHead &= ChaosLedger.drain().isEmpty();
+            }
+            boolean laterFault = false;
+            for (int i = 0; i < 20; i++) {
+                ChaosLedger.begin();
+                probe.sample();
+                laterFault |= !ChaosLedger.drain().isEmpty();
+            }
+            if (cleanHead && laterFault) {
+                schema = candidate;
+            }
+        }
+        assertTrue(schema != null, "no seed found");
+        final TestRunner runner = Runners.withWriter(DataSynthesizer.class, 30);
+        final AvroRecordSetWriter avro = new AvroRecordSetWriter();
+        runner.addControllerService("avro", avro);
+        runner.enableControllerService(avro);
+        runner.setProperty(DataSynthesizer.RECORD_WRITER, "avro");
+        runner.setProperty(DataSynthesizer.SCHEMA, schema);
+        runner.setProperty(ChaosProfile.CHAOS_ENABLED, "true");
+        runner.run();
+        runner.assertTransferCount(DataSynthesizer.REL_SUCCESS, 1);
+        runner.assertTransferCount(DataSynthesizer.REL_CHAOS, 1);
+        runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0).assertAttributeEquals("record.count", "30");
+    }
+
+    @Test
+    void driftRemovalIsAbsentWhenWriterSuppressesMissingValues() throws Exception {
+        final TestRunner runner = Runners.withWriter(DataSynthesizer.class, 60);
+        final JsonRecordSetWriter json = new JsonRecordSetWriter();
+        runner.addControllerService("json", json);
+        runner.setProperty(json, JsonRecordSetWriter.SUPPRESS_NULLS, JsonRecordSetWriter.SUPPRESS_MISSING.getValue());
+        runner.enableControllerService(json);
+        runner.setProperty(DataSynthesizer.RECORD_WRITER, "json");
+        runner.setProperty(DataSynthesizer.SCHEMA, "[{\"name\":\"id\",\"class\":\"uuid\"},{\"name\":\"n\",\"class\":\"int\",\"min\":1,\"max\":9}]");
+        runner.setProperty(ChaosProfile.CHAOS_ENABLED, "true");
+        runner.setProperty(ChaosProfile.CHAOS_DRIFT_RATE, "0.5");
+        runner.setProperty(ChaosProfile.CHAOS_SEED, "11");
+        runner.run();
+        final String records = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0).getContent();
+        final String manifest = runner.getFlowFilesForRelationship(DataSynthesizer.REL_CHAOS).get(0).getContent();
+        int checked = 0;
+        for (final String line : manifest.split("\n")) {
+            if (line.contains("\"fault\":\"drift\"") && !line.contains("\"field\":\"chaos_unexpected\"")) {
+                final Matcher id = ID.matcher(line);
+                final Matcher field = Pattern.compile("\"field\":\"(\\w+)\"").matcher(line);
+                assertTrue(id.find() && field.find(), line);
+                for (final String record : records.split("\\},\\{")) {
+                    if (record.contains(id.group(1))) {
+                        assertFalse(record.contains("\"" + field.group(1) + "\":"), "removed field still written: " + record);
+                        checked++;
+                    }
+                }
+            }
+        }
+        assertTrue(checked > 0, "expected at least one removal drift: " + manifest);
+    }
+
+    @Test
+    void correlatorTagsAndRoutesTamperedCorrelations() throws Exception {
+        final TestRunner runner = Runners.withWriter(DataCorrelator.class, 2);
+        final JsonRecordSetWriter json = new JsonRecordSetWriter();
+        runner.addControllerService("json", json);
+        runner.enableControllerService(json);
+        runner.setProperty(DataSynthesizer.RECORD_WRITER, "json");
+        final MockRecordParser reader = new MockRecordParser();
+        reader.addSchemaField("name", RecordFieldType.STRING);
+        reader.addRecord("Ann");
+        reader.addRecord("Bob");
+        runner.addControllerService("reader", reader);
+        runner.enableControllerService(reader);
+        runner.setProperty(DataCorrelator.RECORD_READER, "reader");
+        runner.setProperty(DataCorrelator.SCHEMA, "[{\"name\":\"device\",\"class\":\"map\",\"value\":["
+                + "{\"name\":\"ip\",\"class\":\"chaos\",\"rate\":1,\"faults\":[\"null\"],\"value\":{\"class\":\"ipv4\"}}]}]");
+        runner.setProperty(DataCorrelator.SCHEMA_KEY, "device");
+        runner.setProperty(ChaosProfile.CHAOS_ENABLED, "true");
+        runner.setProperty(ChaosProfile.CHAOS_ROUTING, "separate");
+        runner.setIncomingConnection(true);
+        runner.enqueue("ignored");
+        runner.run();
+        runner.assertTransferCount(DataCorrelator.REL_SUCCESS, 1);
+        runner.assertTransferCount(DataCorrelator.REL_INVALID, 1);
+        runner.assertTransferCount(DataCorrelator.REL_CORRELATION, 1);
+        runner.assertTransferCount(DataCorrelator.REL_CHAOS, 1);
+        runner.assertTransferCount(DataCorrelator.REL_FAILURE, 0);
+        runner.getFlowFilesForRelationship(DataCorrelator.REL_SUCCESS).get(0).assertAttributeEquals("record.count", "0");
+        final MockFlowFile invalid = runner.getFlowFilesForRelationship(DataCorrelator.REL_INVALID).get(0);
+        invalid.assertAttributeEquals("record.count", "4");
+        assertEquals(4, ids(invalid.getContent()).size(), invalid.getContent());
+        assertTrue(invalid.getContent().contains("Ann") && invalid.getContent().contains("\"ip\":null"), invalid.getContent());
+        final String manifest = runner.getFlowFilesForRelationship(DataCorrelator.REL_CHAOS).get(0).getContent();
+        assertEquals(ids(invalid.getContent()), ids(manifest));
+        assertEquals(4, ids(runner.getFlowFilesForRelationship(DataCorrelator.REL_CORRELATION).get(0).getContent()).size());
     }
 
     @Test

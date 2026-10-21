@@ -137,6 +137,10 @@ public final class JsonRecords {
         };
     }
 
+    /**
+     * Picks the sub-type of a choice that fits the value: records and arrays by shape, temporal types for text that
+     * parses with the sub-type's format. Returns null when no sub-type adds information (plain scalars).
+     */
     private static DataType choose(final ChoiceDataType choice, final JsonNode node) {
         for (final DataType candidate : choice.getPossibleSubTypes()) {
             if (node.isObject() && candidate instanceof RecordDataType) {
@@ -145,8 +149,17 @@ public final class JsonRecords {
             if (node.isArray() && candidate instanceof ArrayDataType) {
                 return candidate;
             }
+            if (node.isTextual() && isTemporal(candidate)) {
+                final Optional<String> format = Optional.ofNullable(candidate.getFormat());
+                try {
+                    DataTypeUtils.convertType(node.asText(), candidate, format, format, format, "value");
+                    return candidate;
+                } catch (final RuntimeException e) {
+                    // not that sub-type
+                }
+            }
         }
-        return choice;
+        return null;
     }
 
     private static RecordSchema inferQuietly(final JsonNode node) {
