@@ -129,10 +129,10 @@ public class Transactions extends DataSynthesizerBase {
             .description("The incoming FlowFile, when input is connected")
             .build();
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(
+    private static final List<PropertyDescriptor> PROPERTIES = withChaos(List.of(
             MAX_TRANSACTIONS, FIXED_TRANSACTIONS, ALLOW_ZERO_TRANSACTIONS, TERMINALS_TO_GENERATE,
-            GENERATE_INVALID_TRANSACTIONS, RECORD_COUNT, RECORD_WRITER, RECORD_READER_FACTORY);
-    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_ORIGINAL);
+            GENERATE_INVALID_TRANSACTIONS, RECORD_COUNT, RECORD_WRITER, RECORD_READER_FACTORY));
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_ORIGINAL, REL_CHAOS, REL_INVALID);
 
     private volatile List<ObjectNode> terminals = List.of();
     private volatile ThreadLocal<SchemaSampler> transactionSamplers = new ThreadLocal<>();

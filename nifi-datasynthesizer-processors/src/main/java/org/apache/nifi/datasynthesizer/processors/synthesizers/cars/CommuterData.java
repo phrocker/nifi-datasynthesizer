@@ -57,7 +57,7 @@ public class CommuterData extends DataSynthesizerBase {
             .required(true)
             .build();
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(HOME_LOCATION, WORK_DISTANCE, RECORD_COUNT, RECORD_WRITER);
+    private static final List<PropertyDescriptor> PROPERTIES = withChaos(List.of(HOME_LOCATION, WORK_DISTANCE, RECORD_COUNT, RECORD_WRITER));
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {

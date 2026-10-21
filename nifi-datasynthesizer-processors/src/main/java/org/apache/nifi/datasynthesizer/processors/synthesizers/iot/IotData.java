@@ -35,7 +35,7 @@ import java.util.List;
         + "longitude, and a time series of readings one minute apart whose temperature follows a random walk.")
 public class IotData extends DataSynthesizerBase {
 
-    private static final List<PropertyDescriptor> PROPERTIES = List.of(RECORD_COUNT, RECORD_WRITER);
+    private static final List<PropertyDescriptor> PROPERTIES = withChaos(List.of(RECORD_COUNT, RECORD_WRITER));
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {

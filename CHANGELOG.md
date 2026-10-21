@@ -10,6 +10,12 @@ Revival for Apache NiFi 2.x. The 1.14.0 line targeted NiFi 1.14 and Java 11 and 
 - Continuous integration runs on JDK 21 and uploads the three NARs as workflow artifacts.
 
 ### New
+- **Chaos engineering**: a `chaos` schema sampler that corrupts a configurable fraction of any field (null,
+  empty, wrong type, truncation, oversize, unicode noise, whitespace, benign injection canaries, outliers), and a
+  per-processor chaos profile (duplicate, drop and drift rates, routing, seed). With Chaos Enabled, records carry
+  a `chaos_id` and a manifest of every injected fault is routed to the new `chaos` relationship so experiments can
+  assert exactly what the pipeline should have caught. Chaos Routing `Separate` sends tampered records to a new
+  `invalid` relationship, the negative path requested in #11; drift can add an unrelated field as #11 suggested.
 - **LLM-backed text**: `llm` sampler for any log-synth schema field, with per-field prompt, system prompt, token
   limit and batching (one API call yields many values). Two controller services implement the new
   `TextGenerationService` API: `AnthropicTextGenerationService` (official Anthropic Java SDK, refusal fallbacks on

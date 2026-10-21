@@ -24,6 +24,7 @@ import org.apache.nifi.datasynthesizer.SamplerBase;
 import org.apache.nifi.datasynthesizer.llm.TextCompletion;
 import org.apache.nifi.datasynthesizer.llm.TextCompletionContext;
 import org.apache.nifi.datasynthesizer.llm.TextCompletionException;
+import org.apache.nifi.datasynthesizer.processors.chaos.ChaosProfile;
 import org.apache.nifi.datasynthesizer.services.SchemaLookupService;
 import org.apache.nifi.datasynthesizer.services.TextGenerationRequest;
 import org.apache.nifi.datasynthesizer.services.TextGenerationService;
@@ -39,6 +40,7 @@ import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.RecordSetWriter;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.WriteResult;
+import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
 
 import java.io.IOException;
@@ -107,7 +109,30 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
             .description("Input FlowFiles for which records could not be generated")
             .build();
 
-    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
+    public static final Relationship REL_CHAOS = new Relationship.Builder()
+            .name("chaos")
+            .description("Manifest of injected faults (one record per fault) when Chaos Enabled is true. "
+                    + "Auto-terminate when chaos is not in use.")
+            .autoTerminateDefault(true)
+            .build();
+
+    public static final Relationship REL_INVALID = new Relationship.Builder()
+            .name("invalid")
+            .description("Tampered records when Chaos Routing is 'Separate': the negative path of a flow under test. "
+                    + "Not a failure. Auto-terminate when chaos is not in use.")
+            .autoTerminateDefault(true)
+            .build();
+
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE, REL_CHAOS, REL_INVALID);
+
+    /** Appends the chaos profile properties to a processor's own list. */
+    protected static List<PropertyDescriptor> withChaos(final List<PropertyDescriptor> own) {
+        final List<PropertyDescriptor> all = new ArrayList<>(own);
+        all.addAll(ChaosProfile.PROPERTIES);
+        return List.copyOf(all);
+    }
+
+    protected volatile ChaosProfile chaos = ChaosProfile.OFF;
 
     /** Schema text fixed by configuration or by a subclass; null means it comes from the FlowFile or lookup service. */
     protected volatile String definedSchema;
@@ -124,6 +149,7 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
     @OnScheduled
     public void configureBase(final ProcessContext context) {
         samplers = new ThreadLocal<>();
+        chaos = ChaosProfile.from(context);
         schemaLookupService = context.getProperty(SCHEMA_LOOKUP_SERVICE) != null && context.getProperty(SCHEMA_LOOKUP_SERVICE).isSet()
                 ? context.getProperty(SCHEMA_LOOKUP_SERVICE).asControllerService(SchemaLookupService.class)
                 : null;
@@ -196,22 +222,172 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
     /** Number of leading samples the output schema is inferred from, so shape variance across samples is captured. */
     static final int INFERENCE_SAMPLES = 10;
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper MANIFEST_MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
+
     /**
      * Writes {@code count} records produced by {@code supplier} into a new FlowFile (derived from {@code parent} when
      * not null) and returns it with record.count and mime.type attributes set. The schema is inferred from the first
-     * {@link #INFERENCE_SAMPLES} records. On failure the output FlowFile is removed before the exception propagates.
+     * {@link #INFERENCE_SAMPLES} records. When chaos is enabled, tampered records may instead be routed to
+     * {@link #REL_INVALID} and a fault manifest is routed to {@link #REL_CHAOS}. On failure every FlowFile created
+     * here is removed before the exception propagates.
      */
     protected FlowFile writeRecords(final ProcessSession session, final ProcessContext context, final FlowFile parent,
                                     final Supplier<JsonNode> supplier, final int count) throws IOException {
-        final RecordSetWriterFactory writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
-        final List<JsonNode> head = new ArrayList<>();
-        for (int i = 0; i < Math.min(count, INFERENCE_SAMPLES); i++) {
-            head.add(supplier.get());
+        final ChaosProfile.Batch batch = chaos.batch(supplier);
+        FlowFile output = null;
+        FlowFile invalid = null;
+        FlowFile manifest = null;
+        try {
+            if (chaos.isSeparate()) {
+                // Draw the whole batch so tampered and clean records can be written to different FlowFiles.
+                final List<JsonNode> clean = new ArrayList<>();
+                final List<JsonNode> tampered = new ArrayList<>();
+                for (int i = 0; i < count; i++) {
+                    for (final JsonNode node : batch.next()) {
+                        (ChaosProfile.isTampered(node) ? tampered : clean).add(node);
+                    }
+                }
+                output = writeList(session, context, parent, clean, batch::exemplar);
+                if (!tampered.isEmpty()) {
+                    invalid = writeList(session, context, parent, tampered, batch::exemplar);
+                }
+            } else {
+                output = writeNodes(session, context, parent, () -> batch.next().iterator(), count, batch::exemplar);
+            }
+            if (chaos.isEnabled() && !batch.manifest().isEmpty()) {
+                manifest = writeManifest(session, parent, batch.manifest());
+            }
+        } catch (final IOException | RuntimeException e) {
+            for (final FlowFile created : new FlowFile[] {output, invalid, manifest}) {
+                if (created != null) {
+                    session.remove(created);
+                }
+            }
+            throw e;
         }
-        final RecordSchema schema = JsonRecords.inferSchema(head.toArray(new JsonNode[0]));
+        if (invalid != null) {
+            session.transfer(invalid, REL_INVALID);
+        }
+        if (manifest != null) {
+            session.transfer(manifest, REL_CHAOS);
+        }
+        return output;
+    }
+
+    /**
+     * Writes the chaos manifest as newline-delimited JSON. It deliberately bypasses the configured Record Writer:
+     * a writer bound to the payload's schema (for example Avro with an explicit schema) could not serialize it.
+     */
+    protected FlowFile writeManifest(final ProcessSession session, final FlowFile parent, final List<ChaosProfile.ManifestEntry> entries) {
+        FlowFile flowFile = parent == null ? session.create() : session.create(parent);
+        try {
+            flowFile = session.write(flowFile, out -> {
+                for (final ChaosProfile.ManifestEntry entry : entries) {
+                    out.write(MANIFEST_MAPPER.writeValueAsBytes(entry.toJson()));
+                    out.write('\n');
+                }
+            });
+        } catch (final RuntimeException e) {
+            session.remove(flowFile);
+            throw e;
+        }
+        final Map<String, String> attributes = new HashMap<>();
+        attributes.put("record.count", String.valueOf(entries.size()));
+        attributes.put(CoreAttributes.MIME_TYPE.key(), "application/x-ndjson");
+        attributes.put("chaos.manifest", "true");
+        return session.putAllAttributes(flowFile, attributes);
+    }
+
+    /** Writes a fully drawn list; {@code exemplar} lends its shape to the schema when the list is empty. */
+    private FlowFile writeList(final ProcessSession session, final ProcessContext context, final FlowFile parent,
+                               final List<JsonNode> nodes, final Supplier<JsonNode> exemplar) throws IOException {
+        final java.util.Iterator<JsonNode> iterator = nodes.iterator();
+        return writeNodes(session, context, parent, () -> List.of(iterator.next()).iterator(), nodes.size(), exemplar);
+    }
+
+    /**
+     * Writes records into a new FlowFile. {@code draw} is invoked {@code count} times and each call may yield zero
+     * or more records (chaos may drop or duplicate). The schema is inferred from the first records drawn; when no
+     * record survives, {@code exemplar} supplies the schema and an empty record set is written.
+     */
+    private FlowFile writeNodes(final ProcessSession session, final ProcessContext context, final FlowFile parent,
+                                final Supplier<java.util.Iterator<JsonNode>> draw, final int count,
+                                final Supplier<JsonNode> exemplar) throws IOException {
+        final List<JsonNode> head = new ArrayList<>();
+        int drawn = 0;
+        while (drawn < count && head.size() < INFERENCE_SAMPLES) {
+            draw.get().forEachRemaining(head::add);
+            drawn++;
+        }
+        while (drawn < count && head.isEmpty()) {
+            draw.get().forEachRemaining(head::add);
+            drawn++;
+        }
+        final int remaining = count - drawn;
+        final RecordSchema schema;
+        if (head.isEmpty()) {
+            final JsonNode shape = exemplar == null ? null : exemplar.get();
+            if (shape == null) {
+                throw new IOException("No records were produced");
+            }
+            schema = extendForChaos(JsonRecords.inferSchema(shape));
+        } else {
+            schema = extendForChaos(JsonRecords.inferSchema(head.toArray(new JsonNode[0])));
+        }
+        final java.util.Iterator<JsonNode> headIterator = head.iterator();
+        return writeWithSchema(session, context, parent, schema, () -> {
+            if (headIterator.hasNext()) {
+                return List.of(headIterator.next()).iterator();
+            }
+            return null;
+        }, remaining, draw);
+    }
+
+    /** Writes records straight through, with no chaos batch: used for outputs derived from already-chaosed data. */
+    protected FlowFile writeWithoutChaos(final ProcessSession session, final ProcessContext context, final FlowFile parent,
+                                         final Supplier<JsonNode> supplier, final int count) throws IOException {
+        return writeNodes(session, context, parent, () -> List.of(supplier.get()).iterator(), count, null);
+    }
+
+    /** Writes already converted records with a known schema. */
+    protected FlowFile writeRecordList(final ProcessSession session, final ProcessContext context, final FlowFile parent,
+                                       final RecordSchema schema, final List<Record> records) throws IOException {
+        return write(session, context, parent, schema, writer -> {
+            for (final Record record : records) {
+                writer.write(record);
+            }
+        });
+    }
+
+    private FlowFile writeWithSchema(final ProcessSession session, final ProcessContext context, final FlowFile parent,
+                                     final RecordSchema schema, final Supplier<java.util.Iterator<JsonNode>> head,
+                                     final int remaining, final Supplier<java.util.Iterator<JsonNode>> draw) throws IOException {
+        return write(session, context, parent, schema, writer -> {
+            java.util.Iterator<JsonNode> nodes;
+            while ((nodes = head.get()) != null) {
+                while (nodes.hasNext()) {
+                    writer.write(JsonRecords.toRecord(nodes.next(), schema));
+                }
+            }
+            for (int i = 0; i < remaining; i++) {
+                nodes = draw.get();
+                while (nodes.hasNext()) {
+                    writer.write(JsonRecords.toRecord(nodes.next(), schema));
+                }
+            }
+        });
+    }
+
+    @FunctionalInterface
+    private interface RecordBody {
+        void write(RecordSetWriter writer) throws IOException;
+    }
+
+    private FlowFile write(final ProcessSession session, final ProcessContext context, final FlowFile parent,
+                           final RecordSchema schema, final RecordBody body) throws IOException {
+        final RecordSetWriterFactory writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
         final Map<String, String> variables = parent == null ? Map.of() : parent.getAttributes();
         final Map<String, String> attributes = new HashMap<>();
-
         FlowFile flowFile = parent == null ? session.create() : session.create(parent);
         try {
             flowFile = session.write(flowFile, out -> {
@@ -219,12 +395,7 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
                     final RecordSchema writeSchema = writerFactory.getSchema(variables, schema);
                     try (RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out, variables)) {
                         writer.beginRecordSet();
-                        for (final JsonNode node : head) {
-                            writer.write(JsonRecords.toRecord(node, schema));
-                        }
-                        for (int i = head.size(); i < count; i++) {
-                            writer.write(JsonRecords.toRecord(supplier.get(), schema));
-                        }
+                        body.write(writer);
                         final WriteResult result = writer.finishRecordSet();
                         attributes.putAll(result.getAttributes());
                         attributes.put("record.count", String.valueOf(result.getRecordCount()));
@@ -239,6 +410,40 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
             throw e;
         }
         return session.putAllAttributes(flowFile, attributes);
+    }
+
+    /**
+     * Prepares an inferred schema for chaos: declares the chaos fields so tagged and drifted records survive the
+     * record writer, and widens scalar fields to a choice with string so a TYPE fault that appears after the
+     * inference window can still be serialized by schema-enforcing writers.
+     */
+    protected RecordSchema extendForChaos(final RecordSchema inferred) {
+        if (!chaos.isEnabled()) {
+            return inferred;
+        }
+        final List<org.apache.nifi.serialization.record.RecordField> fields = new ArrayList<>();
+        for (final org.apache.nifi.serialization.record.RecordField field : inferred.getFields()) {
+            fields.add(new org.apache.nifi.serialization.record.RecordField(field.getFieldName(), widen(field.getDataType()), true));
+        }
+        RecordSchema schema = new org.apache.nifi.serialization.SimpleRecordSchema(fields);
+        if (schema.getField(ChaosProfile.DEFAULT_ID_FIELD).isEmpty()) {
+            schema = JsonRecords.withField(schema, ChaosProfile.DEFAULT_ID_FIELD,
+                    org.apache.nifi.serialization.record.RecordFieldType.STRING.getDataType());
+        }
+        if (chaos.mayAddUnexpectedField() && schema.getField(ChaosProfile.UNEXPECTED_FIELD).isEmpty()) {
+            schema = JsonRecords.withField(schema, ChaosProfile.UNEXPECTED_FIELD,
+                    org.apache.nifi.serialization.record.RecordFieldType.STRING.getDataType());
+        }
+        return schema;
+    }
+
+    private static org.apache.nifi.serialization.record.DataType widen(final org.apache.nifi.serialization.record.DataType type) {
+        final org.apache.nifi.serialization.record.RecordFieldType fieldType = type.getFieldType();
+        return switch (fieldType) {
+            case STRING, RECORD, ARRAY, MAP, CHOICE, ENUM -> type;
+            default -> org.apache.nifi.serialization.record.RecordFieldType.CHOICE.getChoiceDataType(
+                    type, org.apache.nifi.serialization.record.RecordFieldType.STRING.getDataType());
+        };
     }
 
     /** Default behaviour for source-style processors: emit Record Count records from the configured schema. */

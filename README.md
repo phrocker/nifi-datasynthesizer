@@ -64,7 +64,8 @@ Restart NiFi. All three NARs are required; the processors NAR and the services N
 | `TextGenerator` | Records containing a block of free text. |
 
 Every processor takes a **Record Writer** (any NiFi record writer: JSON, Avro, CSV, Parquet...) and a
-**Record Count** per FlowFile, and writes `record.count` and `mime.type` attributes.
+**Record Count** per FlowFile, writes `record.count` and `mime.type` attributes, and has `chaos` and `invalid`
+relationships for fault manifests and negative-path records (see Chaos engineering below).
 
 `TextMessage`, `TextGenerator`, `DataSynthesizer` and `DataCorrelator` also take an optional
 **Text Generation Service**. When set, text fields are written by the model; when unset, `TextMessage` and
@@ -110,7 +111,53 @@ This bundle adds:
 | `double` | `min`, `max` | Floating point values |
 | `vehicle`, `toll` | | Vehicle certification and toll records |
 
+| `chaos` | `value` (required, the wrapped sampler), `rate` (0.05), `faults` (subset of the field faults below), `seed`, `oversize` (8192) | The wrapped value, corrupted at the given rate |
+
 More examples live in [`examples/`](examples/).
+
+## Chaos engineering
+
+Synthetic data that is always clean only proves the happy path. The bundle can poison a controlled fraction of
+what it generates and tell you exactly what it poisoned, so an experiment against a pipeline becomes assertable:
+route the manifest to a table, run the flow, and check that the dead-letter queue, quarantine topic or alert
+contains precisely those records and nothing else.
+
+**Field-level faults** come from the `chaos` sampler wrapped around any field in the schema (see
+`examples/chaos-orders.json`): `null`, `empty`, `type` (wrong JSON type), `truncate`, `oversize`, `unicode`
+(control characters, zero-width joiners, bidi marks, emoji, homoglyphs), `whitespace`, `injection` (benign SQL,
+script, template, JNDI, path-traversal and prompt-injection canaries) and `outlier` (negated or scaled numbers,
+dates a century off).
+
+**Record-level faults** are properties on every processor: **Chaos Duplicate Rate**, **Chaos Drop Rate** (the
+record is withheld but still listed in the manifest, for gap detection) and **Chaos Drift Rate** (a random field
+is removed, or an unrelated `chaos_unexpected` field is added, as a producer with schema drift would).
+
+Record writers emit every field in the schema, so a field removed by drift arrives as `null` unless the writer
+suppresses missing values (JSON writer: **Suppress Null Values** = *Suppress Missing Values*). With chaos enabled,
+inferred scalar fields are widened to a choice with string so a `type` fault that appears after the schema was
+inferred still serializes, including through Avro. The manifest is always newline-delimited JSON, independent of
+the configured writer.
+
+**Chaos Routing** decides where tampered records go. `Mixed` (default) leaves them in `success` among the clean
+ones, to test whether a pipeline notices bad data in the stream. `Separate` writes them to their own FlowFile on
+the `invalid` relationship, a negative path that is not a failure, to feed a known-bad stream into the error
+handling branch of a flow.
+
+Set **Chaos Enabled** to true and every record gains a `chaos_id` field, null for untouched records and a UUID
+for tampered ones. One manifest FlowFile per batch is routed to the new `chaos` relationship with a record per
+fault:
+
+```json
+{"chaos_id": "6f1c…", "fault": "unicode", "field": "customer_email", "original": "ann@example.com", "injected": "an​n@example.com"}
+{"chaos_id": "0b9e…", "fault": "drop", "field": null, "original": "{\"order_id\":\"…\",…}", "injected": null}
+```
+
+**Chaos Seed** on the processor and `seed` on each `chaos` sampler make a run reproducible, so a failure found
+in CI replays with the same faults in the same places. With chaos disabled (the default) nothing changes:
+no tag field, no manifest, and the `chaos` relationship is auto-terminated.
+
+Enrichment paths (`DataCorrelator` and `Transactions` with input) apply field-level faults through the schema but
+not record-level ones.
 
 ### Cost control for `llm` fields
 
