@@ -37,6 +37,11 @@ Revival for Apache NiFi 2.x. The 1.14.0 line targeted NiFi 1.14 and Java 11 and 
   XML dependencies. Sampler resource files moved into the generators jar.
 - Tests migrated to JUnit 5.
 
+### Known
+- Jackson core jars ship in all three NARs: the NAR plugin bundles them when SDK jars pull them transitively even
+  though they resolve as provided. Versions are pinned by the Jackson BOM and parent-first delegation uses the
+  service API NAR's copy, so this is dead weight (about 2.4 MB per NAR), not a conflict.
+
 ### Removed
 - `RemoveRecordPath` processor (an Accumulo-era utility; use `UpdateRecord`).
 - The service API no longer depends on the generators jar; `LookupSampler` moved to the processors module.

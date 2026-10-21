@@ -57,7 +57,7 @@ public class LlmTextSampler extends FieldSampler {
 
     private String prompt;
     private String system = DEFAULT_SYSTEM;
-    private int maxTokens = 128;
+    private int maxTokens = 256;
     private int batch = 1;
     private Double temperature;
 
@@ -133,27 +133,27 @@ public class LlmTextSampler extends FieldSampler {
         return variants;
     }
 
+    /**
+     * Parses the model's reply into variants. A JSON array (even an empty one) is authoritative; an array cut off by
+     * the token limit is repaired to keep its complete elements; anything else is split on line breaks.
+     */
     static List<String> parseVariants(final String raw) {
         final String body = stripCodeFence(raw);
         final int start = body.indexOf('[');
-        final int end = body.lastIndexOf(']');
-        if (start >= 0 && end > start) {
-            try {
-                final JsonNode node = MAPPER.readTree(body.substring(start, end + 1));
-                if (node.isArray()) {
-                    final List<String> out = new ArrayList<>();
-                    for (final JsonNode item : node) {
-                        final String value = clean(item.isTextual() ? item.asText() : item.toString());
-                        if (!value.isEmpty()) {
-                            out.add(value);
-                        }
-                    }
-                    if (!out.isEmpty()) {
-                        return out;
-                    }
+        if (start >= 0) {
+            final int end = body.lastIndexOf(']');
+            final String candidate = end > start ? body.substring(start, end + 1) : body.substring(start);
+            final List<String> parsed = parseArray(candidate);
+            if (parsed != null) {
+                return parsed;
+            }
+            // Truncated mid-element: drop the partial tail and close the array.
+            final int lastComplete = candidate.lastIndexOf("\",");
+            if (lastComplete > 0) {
+                final List<String> repaired = parseArray(candidate.substring(0, lastComplete + 1) + "]");
+                if (repaired != null) {
+                    return repaired;
                 }
-            } catch (final JsonProcessingException ignored) {
-                // fall through to the line-based parser
             }
         }
         final List<String> out = new ArrayList<>();
@@ -164,6 +164,25 @@ public class LlmTextSampler extends FieldSampler {
             }
         }
         return out;
+    }
+
+    private static List<String> parseArray(final String json) {
+        try {
+            final JsonNode node = MAPPER.readTree(json);
+            if (!node.isArray()) {
+                return null;
+            }
+            final List<String> out = new ArrayList<>();
+            for (final JsonNode item : node) {
+                final String value = clean(item.isTextual() ? item.asText() : item.toString());
+                if (!value.isEmpty()) {
+                    out.add(value);
+                }
+            }
+            return out;
+        } catch (final JsonProcessingException e) {
+            return null;
+        }
     }
 
     private static String stripCodeFence(final String raw) {

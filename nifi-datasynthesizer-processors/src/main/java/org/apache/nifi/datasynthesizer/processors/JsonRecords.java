@@ -27,6 +27,7 @@ import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
+import org.apache.nifi.serialization.record.util.DataTypeUtils;
 import org.apache.nifi.serialization.record.type.ArrayDataType;
 import org.apache.nifi.serialization.record.type.ChoiceDataType;
 import org.apache.nifi.serialization.record.type.RecordDataType;
@@ -116,7 +117,24 @@ public final class JsonRecords {
         if (node.isNumber()) {
             return node.numberValue();
         }
-        return node.asText();
+        final String text = node.asText();
+        if (dataType != null && isTemporal(dataType)) {
+            // Writers convert with their own configured patterns, so hand them temporal objects, not strings.
+            final Optional<String> format = Optional.ofNullable(dataType.getFormat());
+            try {
+                return DataTypeUtils.convertType(text, dataType, format, format, format, "value");
+            } catch (final RuntimeException e) {
+                return text;
+            }
+        }
+        return text;
+    }
+
+    private static boolean isTemporal(final DataType dataType) {
+        return switch (dataType.getFieldType()) {
+            case DATE, TIME, TIMESTAMP -> true;
+            default -> false;
+        };
     }
 
     private static DataType choose(final ChoiceDataType choice, final JsonNode node) {

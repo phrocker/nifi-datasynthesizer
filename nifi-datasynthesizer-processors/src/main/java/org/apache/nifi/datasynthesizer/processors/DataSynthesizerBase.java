@@ -42,7 +42,9 @@ import org.apache.nifi.serialization.WriteResult;
 import org.apache.nifi.serialization.record.RecordSchema;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -191,37 +193,51 @@ public abstract class DataSynthesizerBase extends AbstractProcessor {
         return sampler.nextSample().orElseThrow(() -> new ProcessException("Sampler produced no record"));
     }
 
+    /** Number of leading samples the output schema is inferred from, so shape variance across samples is captured. */
+    static final int INFERENCE_SAMPLES = 10;
+
     /**
      * Writes {@code count} records produced by {@code supplier} into a new FlowFile (derived from {@code parent} when
-     * not null) and returns it with record.count and mime.type attributes set.
+     * not null) and returns it with record.count and mime.type attributes set. The schema is inferred from the first
+     * {@link #INFERENCE_SAMPLES} records. On failure the output FlowFile is removed before the exception propagates.
      */
     protected FlowFile writeRecords(final ProcessSession session, final ProcessContext context, final FlowFile parent,
                                     final Supplier<JsonNode> supplier, final int count) throws IOException {
         final RecordSetWriterFactory writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
-        final JsonNode first = supplier.get();
-        final RecordSchema schema = JsonRecords.inferSchema(first);
+        final List<JsonNode> head = new ArrayList<>();
+        for (int i = 0; i < Math.min(count, INFERENCE_SAMPLES); i++) {
+            head.add(supplier.get());
+        }
+        final RecordSchema schema = JsonRecords.inferSchema(head.toArray(new JsonNode[0]));
         final Map<String, String> variables = parent == null ? Map.of() : parent.getAttributes();
         final Map<String, String> attributes = new HashMap<>();
 
         FlowFile flowFile = parent == null ? session.create() : session.create(parent);
-        flowFile = session.write(flowFile, out -> {
-            try {
-                final RecordSchema writeSchema = writerFactory.getSchema(variables, schema);
-                try (RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out, variables)) {
-                    writer.beginRecordSet();
-                    writer.write(JsonRecords.toRecord(first, schema));
-                    for (int i = 1; i < count; i++) {
-                        writer.write(JsonRecords.toRecord(supplier.get(), schema));
+        try {
+            flowFile = session.write(flowFile, out -> {
+                try {
+                    final RecordSchema writeSchema = writerFactory.getSchema(variables, schema);
+                    try (RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out, variables)) {
+                        writer.beginRecordSet();
+                        for (final JsonNode node : head) {
+                            writer.write(JsonRecords.toRecord(node, schema));
+                        }
+                        for (int i = head.size(); i < count; i++) {
+                            writer.write(JsonRecords.toRecord(supplier.get(), schema));
+                        }
+                        final WriteResult result = writer.finishRecordSet();
+                        attributes.putAll(result.getAttributes());
+                        attributes.put("record.count", String.valueOf(result.getRecordCount()));
+                        attributes.put(CoreAttributes.MIME_TYPE.key(), writer.getMimeType());
                     }
-                    final WriteResult result = writer.finishRecordSet();
-                    attributes.putAll(result.getAttributes());
-                    attributes.put("record.count", String.valueOf(result.getRecordCount()));
-                    attributes.put(CoreAttributes.MIME_TYPE.key(), writer.getMimeType());
+                } catch (final SchemaNotFoundException e) {
+                    throw new ProcessException("Record writer could not resolve a schema", e);
                 }
-            } catch (final SchemaNotFoundException e) {
-                throw new ProcessException("Record writer could not resolve a schema", e);
-            }
-        });
+            });
+        } catch (final RuntimeException e) {
+            session.remove(flowFile);
+            throw e;
+        }
         return session.putAllAttributes(flowFile, attributes);
     }
 

@@ -78,6 +78,29 @@ class LlmTextSamplerTest {
     }
 
     @Test
+    void emptyArrayIsEmptyNotLiteral() {
+        assertEquals(List.of(), LlmTextSampler.parseVariants("[]"));
+        assertEquals(List.of(), LlmTextSampler.parseVariants("[\"\"]"));
+        assertEquals(List.of(), LlmTextSampler.parseVariants("```json\n[]\n```"));
+    }
+
+    @Test
+    void truncatedArrayKeepsCompleteElements() {
+        assertEquals(List.of("first one", "second"), LlmTextSampler.parseVariants("[\"first one\", \"second\", \"thir"));
+        assertEquals(List.of("only"), LlmTextSampler.parseVariants("[\"only\", \"cut"));
+    }
+
+    @Test
+    void emptyBatchFailsInsteadOfFillingRecords() throws Exception {
+        final SchemaSampler sampler = new SchemaSampler(
+                "[{\"name\":\"msg\",\"class\":\"llm\",\"prompt\":\"x\",\"batch\":3}]");
+        try (TextCompletionContext.Scope ignored = TextCompletionContext.use((s, p, m, t) -> "[]")) {
+            final TextCompletionException e = assertThrows(TextCompletionException.class, sampler::sample);
+            assertTrue(e.getMessage().contains("empty batch"));
+        }
+    }
+
+    @Test
     void failsClearlyWithoutProvider() throws Exception {
         final SchemaSampler sampler = new SchemaSampler("[{\"name\":\"msg\",\"class\":\"llm\",\"prompt\":\"x\"}]");
         final TextCompletionException e = assertThrows(TextCompletionException.class, sampler::sample);

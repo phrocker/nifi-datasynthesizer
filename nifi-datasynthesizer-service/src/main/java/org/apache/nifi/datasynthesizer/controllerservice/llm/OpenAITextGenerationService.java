@@ -141,7 +141,11 @@ public class OpenAITextGenerationService extends AbstractControllerService imple
         if (completion.choices().isEmpty()) {
             throw new IOException("Endpoint returned no choices");
         }
-        final ChatCompletionMessage message = completion.choices().get(0).message();
+        final ChatCompletion.Choice choice = completion.choices().get(0);
+        if ("length".equals(choice.finishReason().toString())) {
+            getLogger().warn("Reply was cut off at {} tokens; raise maxTokens on the llm field", request.maxTokens());
+        }
+        final ChatCompletionMessage message = choice.message();
         if (message.refusal().isPresent()) {
             throw new IOException("Model declined the request: " + message.refusal().get());
         }

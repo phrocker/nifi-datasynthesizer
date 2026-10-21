@@ -187,6 +187,9 @@ public class AnthropicTextGenerationService extends AbstractControllerService im
                     .orElse("no details");
             throw new IOException("Anthropic declined the request (" + detail + ")");
         }
+        if (stop.isPresent() && BetaStopReason.MAX_TOKENS.equals(stop.get())) {
+            getLogger().warn("Anthropic reply was cut off at {} tokens; raise maxTokens on the llm field", request.maxTokens());
+        }
         final String text = message.content().stream()
                 .map(BetaContentBlock::text)
                 .filter(Optional::isPresent)

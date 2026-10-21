@@ -124,7 +124,6 @@ class TestSynthesizers {
     @Test
     void transactionsStandalone() throws Exception {
         final TestRunner runner = Runners.withWriter(Transactions.class, 2);
-        runner.setIncomingConnection(false);
         runner.setProperty(Transactions.TERMINALS_TO_GENERATE, "5");
         runner.setProperty(Transactions.MAX_TRANSACTIONS, "3");
         runner.setProperty(Transactions.FIXED_TRANSACTIONS, "true");
@@ -146,6 +145,7 @@ class TestSynthesizers {
         runner.setProperty(Transactions.RECORD_READER_FACTORY, "reader");
         runner.setProperty(Transactions.TERMINALS_TO_GENERATE, "3");
         runner.setProperty(Transactions.MAX_TRANSACTIONS, "2");
+        runner.setIncomingConnection(true);
         runner.enqueue("ignored");
         runner.run();
         runner.assertTransferCount(Transactions.REL_SUCCESS, 1);

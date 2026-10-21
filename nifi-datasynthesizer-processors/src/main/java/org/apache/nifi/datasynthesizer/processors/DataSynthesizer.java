@@ -70,7 +70,8 @@ public class DataSynthesizer extends DataSynthesizerBase {
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
         final boolean connected = context.hasIncomingConnection();
         final FlowFile input = connected ? session.get() : null;
-        if (connected && input == null && !hasConfiguredSchema()) {
+        if (connected && input == null) {
+            // Another concurrent task took the queued FlowFile; generating here would emit an unparented batch.
             return;
         }
         if (!connected && !hasConfiguredSchema()) {

@@ -15,6 +15,7 @@
  */
 package org.apache.nifi.datasynthesizer.processors;
 
+import org.apache.nifi.json.JsonRecordSetWriter;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.junit.jupiter.api.Test;
@@ -70,6 +71,7 @@ class TestDataSynthesizer {
     @Test
     void schemaFromIncomingFlowFile() throws Exception {
         final TestRunner runner = Runners.withWriter(DataSynthesizer.class, 2);
+        runner.setIncomingConnection(true);
         runner.enqueue("[{\"name\":\"word\", \"class\":\"word\"}]".getBytes(StandardCharsets.UTF_8));
         runner.run();
         runner.assertTransferCount(DataSynthesizer.REL_SUCCESS, 1);
@@ -80,6 +82,7 @@ class TestDataSynthesizer {
     @Test
     void badSchemaFromFlowFileGoesToFailure() throws Exception {
         final TestRunner runner = Runners.withWriter(DataSynthesizer.class, 2);
+        runner.setIncomingConnection(true);
         runner.enqueue("this is not a schema".getBytes(StandardCharsets.UTF_8));
         runner.run();
         runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_FAILURE, 1);
@@ -99,6 +102,56 @@ class TestDataSynthesizer {
         assertEquals(2, service.calls.get(), "4 records with batch 2 should take 2 calls");
         assertTrue(service.requests.get(0).prompt().startsWith("Say hi"));
         assertEquals(List.of(), runner.getFlowFilesForRelationship(DataSynthesizer.REL_FAILURE));
+    }
+
+    @Test
+    void temporalFieldsWriteThroughRealJsonWriter() throws Exception {
+        final TestRunner runner = Runners.withWriter(DataSynthesizer.class, 3);
+        final JsonRecordSetWriter json = new JsonRecordSetWriter();
+        runner.addControllerService("json", json);
+        runner.setProperty(json, "Date Format", "yyyy-MM-dd");
+        runner.setProperty(json, "Timestamp Format", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+        runner.enableControllerService(json);
+        runner.setProperty(DataSynthesizer.RECORD_WRITER, "json");
+        runner.setProperty(DataSynthesizer.SCHEMA, "["
+                + "{\"name\":\"day\", \"class\":\"date\"},"
+                + "{\"name\":\"ts\", \"class\":\"date\", \"format\":\"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'\"},"
+                + "{\"name\":\"n\", \"class\":\"int\", \"min\":1, \"max\":9}]");
+        runner.run();
+        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_SUCCESS, 1);
+        final String content = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0).getContent();
+        // Inferred temporal strings become real date/timestamp values, so the writer can re-format them.
+        assertTrue(content.matches("(?s).*\"day\"\\s*:\\s*\"\\d{4}-\\d{2}-\\d{2}\".*"), content);
+        assertTrue(content.matches("(?s).*\"ts\"\\s*:\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z\".*"), content);
+    }
+
+    @Test
+    void mixedShapesAcrossSamplesKeepFieldsAndPrecision() throws Exception {
+        final TestRunner runner = Runners.withWriter(DataSynthesizer.class, 6);
+        final JsonRecordSetWriter json = new JsonRecordSetWriter();
+        runner.addControllerService("json", json);
+        runner.enableControllerService(json);
+        runner.setProperty(DataSynthesizer.RECORD_WRITER, "json");
+        runner.setProperty(DataSynthesizer.SCHEMA, "[{\"name\":\"v\", \"class\":\"double\", \"min\":0.5, \"max\":0.9}]");
+        runner.run();
+        final String content = runner.getFlowFilesForRelationship(DataSynthesizer.REL_SUCCESS).get(0).getContent();
+        assertTrue(content.contains("0."), content);
+    }
+
+    @Test
+    void midBatchFailureWithInputRoutesToFailureNotRetry() throws Exception {
+        final TestRunner runner = Runners.withWriter(DataSynthesizer.class, 3);
+        final java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        Runners.withTextService(runner, new MockTextGenerationService(r -> {
+            if (calls.incrementAndGet() == 2) {
+                throw new RuntimeException("rate limited");
+            }
+            return "ok";
+        }));
+        runner.setIncomingConnection(true);
+        runner.enqueue("[{\"name\":\"msg\",\"class\":\"llm\",\"prompt\":\"hi\"}]".getBytes(StandardCharsets.UTF_8));
+        runner.run();
+        runner.assertAllFlowFilesTransferred(DataSynthesizer.REL_FAILURE, 1);
     }
 
     @Test

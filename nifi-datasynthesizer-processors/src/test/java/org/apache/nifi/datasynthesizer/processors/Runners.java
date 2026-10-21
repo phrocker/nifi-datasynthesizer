@@ -29,6 +29,8 @@ public final class Runners {
 
     public static TestRunner withWriter(final Class<? extends Processor> processor, final int recordCount) throws InitializationException {
         final TestRunner runner = TestRunners.newTestRunner(processor);
+        // Source-style by default; tests that enqueue input call runner.setIncomingConnection(true).
+        runner.setIncomingConnection(false);
         final MockRecordWriter writer = new MockRecordWriter("header", false);
         runner.addControllerService("writer", writer);
         runner.enableControllerService(writer);

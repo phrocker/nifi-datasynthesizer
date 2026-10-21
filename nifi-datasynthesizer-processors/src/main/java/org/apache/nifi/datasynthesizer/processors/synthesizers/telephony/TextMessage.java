@@ -97,7 +97,7 @@ public class TextMessage extends DataSynthesizerBase {
         if (context.getProperty(TEXT_GENERATION_SERVICE).isSet()) {
             final String prompt = context.getProperty(LLM_PROMPT).getValue() + " Keep it under " + words + " words.";
             message = "{\"name\": \"message\", \"class\": \"llm\", \"prompt\": " + quote(prompt)
-                    + ", \"maxTokens\": " + Math.max(32, words * 3)
+                    + ", \"maxTokens\": " + Math.max(256, words * 4)
                     + ", \"batch\": " + context.getProperty(LLM_BATCH).asInteger() + "}";
         } else {
             message = "{\"name\": \"message\", \"class\": \"markov\", \"corpus\": \"us_const\", \"length\": " + words + "}";

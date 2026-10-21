@@ -40,6 +40,7 @@ class TestDataCorrelator {
                 + "{\"name\":\"id\", \"class\":\"uuid\"}, {\"name\":\"ip\", \"class\":\"ipv4\"}]}]");
         runner.setProperty(DataCorrelator.SCHEMA_KEY, "device");
         runner.setProperty(DataCorrelator.SELECT_OBJECT, String.valueOf(selectObject));
+        runner.setIncomingConnection(true);
         runner.enqueue("ignored by mock parser");
         return runner;
     }

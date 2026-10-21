@@ -37,6 +37,8 @@ import java.util.regex.Pattern;
 public class CommuterData extends DataSynthesizerBase {
 
     private static final Pattern ZIP = Pattern.compile("^[0-9]{5}(?:-[0-9]{4})?$");
+    /** The commuter sampler measures distance in kilometres. */
+    static final double MILES_TO_KM = 1.609344;
 
     public static final PropertyDescriptor HOME_LOCATION = new PropertyDescriptor.Builder()
             .name("home-location")
@@ -69,7 +71,7 @@ public class CommuterData extends DataSynthesizerBase {
                 ? "{\"class\": \"zip\", \"zip\": \"" + context.getProperty(HOME_LOCATION).getValue() + "\"}"
                 : "{\"class\": \"zip\"}";
         definedSchema = "[{\"name\": \"commuter-data\", \"class\": \"commuter\", \"home\": " + home
-                + ", \"work\": " + context.getProperty(WORK_DISTANCE).asDouble() + "}]";
+                + ", \"work\": " + (context.getProperty(WORK_DISTANCE).asDouble() * MILES_TO_KM) + "}]";
     }
 
     @Override

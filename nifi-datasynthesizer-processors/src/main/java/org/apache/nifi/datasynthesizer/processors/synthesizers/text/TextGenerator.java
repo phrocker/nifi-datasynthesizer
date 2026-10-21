@@ -89,7 +89,7 @@ public class TextGenerator extends DataSynthesizerBase {
         if (context.getProperty(TEXT_GENERATION_SERVICE).isSet()) {
             final String prompt = context.getProperty(LLM_PROMPT).getValue() + " Aim for about " + words + " words.";
             definedSchema = "[{\"name\": \"message\", \"class\": \"llm\", \"prompt\": " + TextMessage.quote(prompt)
-                    + ", \"maxTokens\": " + Math.max(64, words * 3)
+                    + ", \"maxTokens\": " + Math.max(512, words * 4)
                     + ", \"batch\": " + context.getProperty(LLM_BATCH).asInteger() + "}]";
         } else {
             definedSchema = "[{\"name\": \"message\", \"class\": \"markov\", \"corpus\": \""

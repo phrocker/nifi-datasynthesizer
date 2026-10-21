@@ -79,9 +79,15 @@ public class MarkovChain {
         while (emitted < wordCount) {
             final List<String> next = transitions.get(key);
             if (next == null || next.isEmpty()) {
+                // Dead end: restart from a random key, but never emit more words than asked for.
                 key = keys.get(random.nextInt(keys.size()));
-                out.append(' ').append(key);
-                emitted += keySize;
+                for (final String word : key.split(" ")) {
+                    if (emitted >= wordCount) {
+                        break;
+                    }
+                    out.append(' ').append(word);
+                    emitted++;
+                }
                 continue;
             }
             final String word = next.get(random.nextInt(next.size()));

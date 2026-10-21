@@ -17,6 +17,7 @@ package org.apache.nifi.datasynthesizer.samplers;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mapr.synth.samplers.SchemaSampler;
+import org.apache.nifi.datasynthesizer.text.MarkovChain;
 import org.junit.jupiter.api.Test;
 
 import java.io.UncheckedIOException;
@@ -36,6 +37,11 @@ class MarkovTextSamplerTest {
         final String text = first.get("text").asText();
         assertEquals(25, text.split(" ").length);
         assertNotEquals(text, sampler.sample().get("text").asText(), "samples should vary");
+        // Dead-end restarts used to overshoot the requested length.
+        final MarkovChain chain = MarkovTextSampler.load("us_const", 3);
+        for (int i = 0; i < 20000; i++) {
+            assertEquals(7, chain.produce(7).split(" ").length);
+        }
     }
 
     @Test
