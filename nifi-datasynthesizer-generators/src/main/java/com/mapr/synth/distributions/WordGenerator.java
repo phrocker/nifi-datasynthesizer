@@ -86,7 +86,9 @@ public class WordGenerator {
 
         try {
             //noinspection UnstableApiUsage
-            wordReader = Files.newReader(new File(Resources.getResource(others).getFile()), Charsets.UTF_8);
+            // Open as a stream: the resource lives inside a jar, so it is not a File.
+            wordReader = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    Resources.getResource(others).openStream(), Charsets.UTF_8));
         } catch (IOException e) {
             log.error("Can't read resource \"{}\", will continue without realistic words", others);
             wordReader = null;
@@ -99,7 +101,7 @@ public class WordGenerator {
             synchronized (this) {
                 while (n >= words.size()) {
                     try {
-                        String w = wordReader.readLine();
+                        String w = wordReader == null ? null : wordReader.readLine();
                         if (w != null) {
                             words.add(w);
                         } else {

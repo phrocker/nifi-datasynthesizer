@@ -54,6 +54,20 @@ class BundledSamplersTest {
     }
 
     @Test
+    void streamBackedSamplersWork() throws Exception {
+        // 'word' and 'lookup' used to open classpath resources as java.io.File, which fails inside a jar.
+        final SchemaSampler sampler = new SchemaSampler("["
+                + "{\"name\":\"w\",\"class\":\"word\"},"
+                + "{\"name\":\"tld\",\"class\":\"lookup\",\"resource\":\"tld.csv\"}]");
+        for (int i = 0; i < 50; i++) {
+            final JsonNode node = sampler.sample();
+            assertFalse(node.get("w").asText().isBlank());
+            assertFalse(node.get("w").asText().startsWith("w-"), "fell back to synthetic words: " + node);
+            assertFalse(node.get("tld").isNull() || node.get("tld").toString().length() < 3, node.toString());
+        }
+    }
+
+    @Test
     void commuterSamplerProducesTrajectory() throws Exception {
         final SchemaSampler sampler = new SchemaSampler("[{\"name\":\"trip\",\"class\":\"commuter\","
                 + "\"home\":{\"class\":\"zip\",\"zip\":\"10001\"},\"work\":5.0}]");
